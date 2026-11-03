@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from iothing_auth import apppasswords, sessions, users
+from iothing_auth import apppasswords, db, sessions, users
 from iothing_auth.proxyauth import Proxy, authlog, peer_of, remember_peer, seen
 
 ACCESS_ROLES = ("public", "signed_in", "editor", "admin", "suite_admin")
@@ -170,6 +170,12 @@ class Auth:
         open_prefixes = tuple(open_prefixes) + ("/api/auth/",)
 
         async def guard(request: Request, call_next):
+            path = request.url.path
+            if not await run_in_threadpool(db.available):  # the auth database is down: the shell and the open paths only, with a clear answer
+                request.state.user, request.state.via_proxy = None, False
+                if path in open_paths or (is_open and is_open(path)) or (path.startswith(open_prefixes) and not path.startswith("/api/auth/")):
+                    return await call_next(request)
+                return JSONResponse({"detail": f"The account database cannot be reached ({db.error}); sign-in is unavailable until it is back."}, status_code=503)
             refused = await auth.resolve(request)
             if refused is not None:
                 return refused

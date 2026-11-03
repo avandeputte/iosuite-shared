@@ -144,7 +144,9 @@ def ex(sql: str, args=None) -> int:
 
 
 _ready = False
+error = None  # why the database could not be opened at start (None once it could)
 _init_lock = threading.Lock()
+_retry_at = 0.0
 
 
 def init():
@@ -174,6 +176,18 @@ def init():
 
 def ready() -> bool:
     return _ready
+
+
+def available() -> bool:
+    """Whether the database can be used; when the start failed, another try at most every 10 seconds."""
+    global _retry_at
+    if _ready:
+        return True
+    if time.time() < _retry_at:
+        return False
+    _retry_at = time.time() + 10
+    from iothing_auth import users
+    return users.init()
 
 
 # ---- settings: suite-wide (app '') with a per-app override

@@ -99,6 +99,16 @@ class Source:
                         "AND REFERENCED_TABLE_NAME = 'users' AND TABLE_NAME != 'app_passwords'"):
             self.ex(f"ALTER TABLE `{r['t']}` DROP FOREIGN KEY `{r['c']}`")
 
+    PROXY_KEYS = ("auth_proxy", "auth_proxy_header", "auth_proxy_trusted", "auth_proxy_create", "cf_access_team", "cf_access_aud")
+
+    def app_settings(self) -> dict:
+        """The settings that move to the auth database: require_login (per app) and the proxy sign-in keys (suite-wide)."""
+        if self.app not in ("iopix", "ionotes") or not self.has_table("app_settings"):
+            return {}
+        rows = self.q("SELECT `key` AS k, value AS v FROM app_settings WHERE `key` IN (%s)" % ",".join("?" * (len(self.PROXY_KEYS) + 1)),
+                      ("require_login", *self.PROXY_KEYS))
+        return {r["k"]: r["v"] for r in rows if r["v"] not in (None, "")}
+
     def remap(self, idmap: dict):
         """Rewrite the user id columns to the shared ids (two passes: old ids and new ids may overlap)."""
         self.drop_user_fks()
@@ -221,6 +231,11 @@ def apply(sources: dict, p: dict, keep_old: bool = False) -> dict:
         for app, old in m["sources"].items():
             idmaps[app][old] = uid
     for app, src in sources.items():
+        for k, v in src.app_settings().items():
+            if k == "require_login":
+                db.set_setting(k, v, app)
+            elif not db.settings_of("").get(k):  # the proxy sign-in, once for the suite: the first app that had it set
+                db.set_setting(k, v, "")
         src.remap(idmaps[app])
         if not keep_old:
             src.retire()

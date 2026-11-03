@@ -102,7 +102,8 @@ class Auth:
         Sets request.state.user, .via_proxy, .cookie_uid, .proxy_ident; returns a response to send instead when the
         proxy let in someone who has no account and that is denied."""
         session = request.cookies.get(sessions.COOKIE)
-        user, renewed = (await run_in_threadpool(sessions.lookup, session, self.app)) if session else (None, False)
+        request.state.origin = sessions.describe(request, self.proxy)
+        user, renewed = (await run_in_threadpool(sessions.lookup, session, self.app, request.state.origin)) if session else (None, False)
         request.state.cookie_uid = user["id"] if user else None
         request.state.renew_cookie = renewed
         request.state.via_proxy = False
@@ -149,7 +150,7 @@ class Auth:
             sessions.set_cookie(response, request.cookies.get(sessions.COOKIE), sessions.host_of(request), via, sessions.over_https(request))
         if request.state.via_proxy and user and request.state.cookie_uid != user["id"] and path != "/api/auth/logout":
             via = "cloudflare" if self.proxy.mode() == "cloudflare" else "proxy"
-            tok = sessions.create(user["id"], self.app, via)
+            tok = sessions.create(user["id"], self.app, via, getattr(request.state, "origin", None))
             sessions.set_cookie(response, tok, sessions.host_of(request), via, sessions.over_https(request))
         return response
 
@@ -216,7 +217,7 @@ class Auth:
 
     # ---- sign-in helpers
     def sign_in(self, response, request: Request, user: dict, via: str):
-        tok = sessions.create(user["id"], self.app, via)
+        tok = sessions.create(user["id"], self.app, via, getattr(request.state, "origin", None) or sessions.describe(request, self.proxy))
         sessions.set_cookie(response, tok, sessions.host_of(request), via, sessions.over_https(request))
 
     def signed_in_by(self, request: Request, u):
@@ -357,8 +358,18 @@ class Auth:
 
         @r.get("/api/auth/sessions", dependencies=[access.signed_in])
         def api_sessions(request: Request):
+            """The signed-in account's sessions in every app: where and how each began and was last seen."""
             u = auth.current_user(request)
-            return {"sessions": sessions.list_sessions(u["id"]) if u else []}
+            return {"sessions": sessions.list_sessions(u["id"], request.cookies.get(sessions.COOKIE)) if u else []}
+
+        @r.delete("/api/auth/sessions/{session_id}", dependencies=[access.signed_in])
+        def api_end_session(session_id: str, request: Request):
+            """End one of the signed-in account's sessions (another browser or device)."""
+            u = auth.current_user(request)
+            if not u:
+                raise HTTPException(401, "Sign in first")
+            sessions.end_one(u["id"], session_id)
+            return {"ok": True}
 
         @r.get("/api/auth/app-passwords", dependencies=[access.signed_in])
         def api_app_passwords(request: Request):
@@ -432,6 +443,25 @@ class Auth:
             except ValueError as e:
                 raise HTTPException(400, str(e))
             return {"ok": True, "user": auth.decorate(users.get(user_id, app)) if not body.get("delete") else None}
+
+        @r.get("/api/users/{user_id}/sessions", dependencies=[access.admin])
+        def api_user_sessions(user_id: int):
+            """An account's sessions (admins): app, client, address, through Cloudflare or not, last seen."""
+            if not users.get(user_id):
+                raise HTTPException(404, "No such user")
+            return {"sessions": sessions.list_sessions(user_id)}
+
+        @r.delete("/api/users/{user_id}/sessions", dependencies=[access.admin])
+        def api_user_end_sessions(user_id: int, request: Request):
+            """Sign an account out everywhere (admins), or one session with ?session=<id>."""
+            if not users.get(user_id):
+                raise HTTPException(404, "No such user")
+            sid = request.query_params.get("session")
+            if sid:
+                sessions.end_one(user_id, sid)
+            else:
+                sessions.end_all(user_id)
+            return {"ok": True}
 
         @r.delete("/api/users/{user_id}", dependencies=[access.admin])
         def api_users_delete(user_id: int, request: Request):

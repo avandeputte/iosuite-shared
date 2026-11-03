@@ -8,7 +8,7 @@ the whole suite. Signed in at `photo.iothing.net`, a person is signed in at `not
 | Shared (one row per person)            | Per app                                                   |
 |----------------------------------------|-----------------------------------------------------------|
 | name, display name, email, password    | role: `none`, `viewer`, `editor` or `admin`               |
-| sessions (the `iothing_session` cookie)| settings (display preferences) and other per-user data    |
+| sessions (the `iothing_session` cookie): where each began and was last seen (address, through Cloudflare or not, web or which app, User-Agent) | settings (display preferences) and other per-user data    |
 | suite admin flag, sign-in list flag    | app passwords (for CardDAV, LDAP, MCP clients…)           |
 | proxy sign-in (Cloudflare Access…)     | optional overrides of the proxy settings, `require_login`, `default_role` |
 
@@ -47,8 +47,8 @@ auth.decorate = lambda u: {**u, "person": users.get_value(u["id"], "iopix", "per
 
 app.middleware("http")(auth.middleware(open_paths=("/", "/index.html"), open_prefixes=("/static/", "/api/auth/"), before=my_gate))
 app.include_router(auth.router())         # /api/auth/login, accounts, logout, logout_all, me, settings, password, setup,
-                                          #           sessions, app-passwords, proxy
-app.include_router(auth.users_router())   # /api/users (admins of this app)
+                                          #           sessions (list, DELETE one), app-passwords, proxy
+app.include_router(auth.users_router())   # /api/users (admins of this app), /api/users/{id}/sessions (list, DELETE all or ?session=)
 
 @router.post("/api/photos/tag", dependencies=[auth.access.editor_write])
 def tag(request: Request):

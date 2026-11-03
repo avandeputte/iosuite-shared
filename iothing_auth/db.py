@@ -13,7 +13,7 @@ from pymysql.cursors import DictCursor
 
 from iothing_auth import config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = [
     """CREATE TABLE IF NOT EXISTS meta (
@@ -52,7 +52,9 @@ SCHEMA = [
         PRIMARY KEY (user_id, app, k),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
-    # a browser session: the cookie carries a random token, the table its hash. Shared by every app on the domain.
+    # a browser or app session: the cookie carries a random token, the table its hash. Shared by every app on the
+    # domain. Where it began and was last seen: the visitor's address (the real one, through Cloudflare or a trusted
+    # proxy), whether it came through Cloudflare, the client (web, or the app's User-Agent product) and the full User-Agent.
     """CREATE TABLE IF NOT EXISTS sessions (
         token_hash CHAR(64) PRIMARY KEY,
         user_id INT NOT NULL,
@@ -61,6 +63,12 @@ SCHEMA = [
         created BIGINT NOT NULL,
         expires BIGINT NOT NULL,
         renewed BIGINT NOT NULL,
+        ip VARCHAR(64) NULL,
+        cloudflare TINYINT NOT NULL DEFAULT 0,
+        client VARCHAR(32) NOT NULL DEFAULT '',
+        user_agent VARCHAR(255) NULL,
+        last_seen BIGINT NULL,
+        last_ip VARCHAR(64) NULL,
         INDEX (user_id),
         INDEX (expires),
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -85,6 +93,16 @@ SCHEMA = [
         v MEDIUMTEXT NOT NULL,
         PRIMARY KEY (app, k)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
+]
+
+# schema 2 (sessions carry where they began and were last seen)
+UPGRADES = [
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip VARCHAR(64) NULL",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cloudflare TINYINT NOT NULL DEFAULT 0",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client VARCHAR(32) NOT NULL DEFAULT ''",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR(255) NULL",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_seen BIGINT NULL",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_ip VARCHAR(64) NULL",
 ]
 
 _overrides: dict = {}  # the tests point the library at another database
@@ -172,7 +190,9 @@ def init():
             with con.cursor() as cur:
                 for stmt in SCHEMA:
                     cur.execute(stmt)
-                cur.execute("INSERT IGNORE INTO meta (k, v) VALUES ('schema', %s)", (str(SCHEMA_VERSION),))
+                for stmt in UPGRADES:  # columns added since the first schema (MariaDB: IF NOT EXISTS)
+                    cur.execute(stmt)
+                cur.execute("INSERT INTO meta (k, v) VALUES ('schema', %s) ON DUPLICATE KEY UPDATE v = VALUES(v)", (str(SCHEMA_VERSION),))
         _ready = True
 
 

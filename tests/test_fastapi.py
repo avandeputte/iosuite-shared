@@ -130,3 +130,25 @@ def test_unreachable_auth_database_answers_503_not_open(monkeypatch):
     r = c.get("/api/admin")
     assert r.status_code == 503 and "account database" in r.json()["detail"]
     assert c.post("/api/auth/login", json={"name": "a", "password": "b"}).status_code == 503
+
+
+def test_sessions_record_where_they_began_and_were_seen():
+    from iothing_auth import sessions
+    app, _ = make_app()
+    users.create("alex", "secret123", "admin", "iopix", suite_admin=True)
+    web = TestClient(app, base_url="http://photo.iothing.net", headers={"user-agent": "Mozilla/5.0 (Macintosh) Safari/605"})
+    web.post("/api/auth/login", json={"name": "alex", "password": "secret123"})
+    phone = TestClient(app, base_url="http://photo.iothing.net", headers={"user-agent": "iopix/312 CFNetwork/1498 Darwin/25.0", "cf-ray": "abc", "cf-connecting-ip": "203.0.113.9"})
+    phone.post("/api/auth/login", json={"name": "alex", "password": "secret123"})
+    lst = web.get("/api/auth/sessions").json()["sessions"]
+    assert len(lst) == 2
+    by = {s["client"]: s for s in lst}
+    assert by["web"]["current"] and not by["web"]["cloudflare"] and by["web"]["ip"] == "testclient"
+    assert not by["iopix"]["current"] and by["iopix"]["cloudflare"] and by["iopix"]["userAgent"].startswith("iopix/312") and by["iopix"]["lastSeen"]
+    assert web.delete(f"/api/auth/sessions/{by['iopix']['id']}").status_code == 200
+    assert phone.get("/api/auth/me").json()["user"] is None  # ended
+    assert len(web.get("/api/users/1/sessions").json()["sessions"]) == 1  # admins see an account's sessions
+    assert web.delete("/api/users/1/sessions").status_code == 200
+    sessions.invalidate()
+    assert web.get("/api/auth/me").json()["user"] is None
+    assert sessions.classify("curl/8.0") == "curl" and sessions.classify("") == "other"

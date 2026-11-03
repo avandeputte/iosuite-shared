@@ -27,12 +27,40 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create(user_id: int, app: str, via: str) -> str:
-    """A new session; returns the token for the cookie."""
+def describe(request, proxy=None) -> dict:
+    """Where a request comes from, for the sessions table: {ip, cloudflare, client, user_agent}. The address is the
+    visitor's real one when a trusted proxy or Cloudflare reports it; the client is "web" for a browser, the product
+    token of an app's User-Agent otherwise (the iOS and Mac apps send "iopix/<build> CFNetwork/..."), or "other"."""
+    h = request.headers
+    ua = (h.get("user-agent") or "")[:255]
+    if proxy is not None:
+        ip, cf = proxy.visitor_of(request), proxy.external(h, "") and any(h.get(x) for x in ("cf-ray", "cf-connecting-ip", "cf-access-jwt-assertion"))
+    else:
+        ip, cf = (request.client.host if request.client else ""), bool(h.get("cf-ray"))
+    return {"ip": (ip or "")[:64], "cloudflare": bool(cf), "client": classify(ua), "user_agent": ua or None}
+
+
+def classify(ua: str) -> str:
+    """web (a browser), the app's product token (iopix/123 → "iopix"), or other."""
+    ua = ua or ""
+    if not ua:
+        return "other"
+    if ua.startswith("Mozilla/") or "Safari/" in ua or "Chrome/" in ua or "Firefox/" in ua:
+        return "web"
+    if "CFNetwork" in ua or "Darwin" in ua:  # URLSession: "<bundle name>/<build> CFNetwork/<v> Darwin/<v>"
+        return (ua.split("/")[0].strip().lower() or "app")[:32]
+    return ua.split("/")[0].split(" ")[0].strip().lower()[:32] or "other"
+
+
+def create(user_id: int, app: str, via: str, info: dict = None) -> str:
+    """A new session; returns the token for the cookie. info: describe()'s dict."""
     token = secrets.token_urlsafe(32)
     now = int(time.time())
-    db.ex("INSERT INTO sessions (token_hash, user_id, app, via, created, expires, renewed) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-          (_hash(token), user_id, app, via[:16], now, now + SESSION_DAYS * 86400, now))
+    i = info or {}
+    db.ex("INSERT INTO sessions (token_hash, user_id, app, via, created, expires, renewed, ip, cloudflare, client, user_agent, last_seen, last_ip) "
+          "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+          (_hash(token), user_id, app, via[:16], now, now + SESSION_DAYS * 86400, now, i.get("ip"), 1 if i.get("cloudflare") else 0,
+           (i.get("client") or "")[:32], i.get("user_agent"), now, i.get("ip")))
     if now % 50 == 0:  # now and then: expired sessions go
         db.ex("DELETE FROM sessions WHERE expires < %s", (now,))
     return token
@@ -54,15 +82,18 @@ def user_from_token(token: str, app: str):
     return lookup(token, app)[0]
 
 
-def lookup(token: str, app: str) -> tuple:
+SEEN_EVERY = 300  # last_seen / last_ip are written at most this often per session
+
+
+def lookup(token: str, app: str, info: dict = None) -> tuple:
     """(user, renewed): the account, and whether the session was just given a fresh 30 days (then the cookie is
-    set again too, so the browser's copy lasts as long)."""
+    set again too, so the browser's copy lasts as long). info (describe()): where it is seen from now."""
     if not token:
         return None, False
     hit = _cache.get((token, app))
     if hit and time.time() - hit[0] < CACHE_S:
         return hit[1], False
-    r = db.one("SELECT user_id, expires, renewed FROM sessions WHERE token_hash = %s", (_hash(token),))
+    r = db.one("SELECT user_id, expires, renewed, last_seen FROM sessions WHERE token_hash = %s", (_hash(token),))
     user, renewed = None, False
     now = int(time.time())
     if r and r["expires"] > now:
@@ -70,14 +101,28 @@ def lookup(token: str, app: str) -> tuple:
         if user and now - r["renewed"] > 86400:
             db.ex("UPDATE sessions SET expires = %s, renewed = %s WHERE token_hash = %s", (now + SESSION_DAYS * 86400, now, _hash(token)))
             renewed = True
+        if user and now - (r["last_seen"] or 0) > SEEN_EVERY:
+            db.ex("UPDATE sessions SET last_seen = %s, last_ip = %s WHERE token_hash = %s", (now, (info or {}).get("ip"), _hash(token)))
     if len(_cache) > 500:
         _cache.clear()
     _cache[(token, app)] = (time.time(), user)
     return user, renewed
 
 
-def list_sessions(user_id: int) -> list:
-    return db.q("SELECT app, via, created, expires, renewed FROM sessions WHERE user_id = %s ORDER BY renewed DESC", (user_id,))
+def list_sessions(user_id: int, current_token: str = None) -> list:
+    """The account's sessions, newest activity first: app, via, client, ip / lastIp, cloudflare, userAgent,
+    created / lastSeen / expires (epoch seconds), id (to end one) and current (the one asking)."""
+    cur = _hash(current_token) if current_token else None
+    return [{"id": r["token_hash"][:16], "app": r["app"], "via": r["via"], "client": r["client"] or "other", "ip": r["ip"], "lastIp": r["last_ip"],
+             "cloudflare": bool(r["cloudflare"]), "userAgent": r["user_agent"], "created": r["created"], "lastSeen": r["last_seen"] or r["renewed"],
+             "expires": r["expires"], "current": r["token_hash"] == cur}
+            for r in db.q("SELECT * FROM sessions WHERE user_id = %s ORDER BY coalesce(last_seen, renewed) DESC", (user_id,))]
+
+
+def end_one(user_id: int, session_id: str):
+    """End one of the account's sessions by the id list_sessions gives."""
+    db.ex("DELETE FROM sessions WHERE user_id = %s AND token_hash LIKE %s", (user_id, session_id[:16] + "%"))
+    invalidate()
 
 
 # ---- cookies

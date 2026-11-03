@@ -89,6 +89,8 @@ class Auth:
         self.realm = basic_realm or self.label
         self.log = logging.getLogger(f"iothing_auth.{app}")
         self.decorate = lambda user: user  # the app may add fields to the user dict it serves (iopix: the person tag)
+        self.on_update = None  # on_update(user_id, body) after an admin changed an account: the app's own fields (iopix: the person tag)
+        self.deny_exempt = ()  # path prefixes a denied proxy identity may still reach (iopix: /mcp, which signs in with its own token)
         remember_peer()
 
     # ---- who is asking
@@ -100,8 +102,9 @@ class Auth:
         Sets request.state.user, .via_proxy, .cookie_uid, .proxy_ident; returns a response to send instead when the
         proxy let in someone who has no account and that is denied."""
         session = request.cookies.get(sessions.COOKIE)
-        user = (await run_in_threadpool(sessions.user_from_token, session, self.app)) if session else None
+        user, renewed = (await run_in_threadpool(sessions.lookup, session, self.app)) if session else (None, False)
         request.state.cookie_uid = user["id"] if user else None
+        request.state.renew_cookie = renewed
         request.state.via_proxy = False
         request.state.proxy_ident = None
         peer = peer_of(request)
@@ -111,7 +114,7 @@ class Auth:
             pu = await run_in_threadpool(self.proxy.user, request)
             if pu:
                 user, request.state.via_proxy = pu, True
-            elif request.state.proxy_ident and self.proxy.deny_unknown():
+            elif request.state.proxy_ident and self.proxy.deny_unknown() and not request.url.path.startswith(tuple(self.deny_exempt) or ("\0",)):
                 request.state.user = None
                 return self.no_access(request, request.state.proxy_ident)
         if not user and "authorization" in request.headers:
@@ -141,6 +144,9 @@ class Auth:
         """After the route: set the session cookie when a proxy sign-in needs one here too (so the same browser stays
         signed in on the home network, where requests reach the app directly without Cloudflare)."""
         user, path = getattr(request.state, "user", None), request.url.path
+        if user and getattr(request.state, "renew_cookie", False) and request.state.cookie_uid == user["id"] and "set-cookie" not in response.headers:
+            via = request.cookies.get(sessions.VIA_COOKIE) or "password"
+            sessions.set_cookie(response, request.cookies.get(sessions.COOKIE), sessions.host_of(request), via, sessions.over_https(request))
         if request.state.via_proxy and user and request.state.cookie_uid != user["id"] and path != "/api/auth/logout":
             via = "cloudflare" if self.proxy.mode() == "cloudflare" else "proxy"
             tok = sessions.create(user["id"], self.app, via)
@@ -453,6 +459,8 @@ class Auth:
         if suite and isinstance(body.get("roles"), dict):
             for a, rr in body["roles"].items():
                 users.set_role(user_id, str(a)[:32], str(rr))
+        if self.on_update:
+            self.on_update(user_id, body)
         apppasswords.forget()
         from iothing_auth import proxyauth
         proxyauth.forget_identities()

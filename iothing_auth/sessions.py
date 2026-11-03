@@ -51,22 +51,29 @@ def end_all(user_id: int):
 
 def user_from_token(token: str, app: str):
     """The account a session token stands for (with its role in the app), or None; cached briefly."""
+    return lookup(token, app)[0]
+
+
+def lookup(token: str, app: str) -> tuple:
+    """(user, renewed): the account, and whether the session was just given a fresh 30 days (then the cookie is
+    set again too, so the browser's copy lasts as long)."""
     if not token:
-        return None
+        return None, False
     hit = _cache.get((token, app))
     if hit and time.time() - hit[0] < CACHE_S:
-        return hit[1]
+        return hit[1], False
     r = db.one("SELECT user_id, expires, renewed FROM sessions WHERE token_hash = %s", (_hash(token),))
-    user = None
+    user, renewed = None, False
     now = int(time.time())
     if r and r["expires"] > now:
         user = users.get(r["user_id"], app)
         if user and now - r["renewed"] > 86400:
             db.ex("UPDATE sessions SET expires = %s, renewed = %s WHERE token_hash = %s", (now + SESSION_DAYS * 86400, now, _hash(token)))
+            renewed = True
     if len(_cache) > 500:
         _cache.clear()
     _cache[(token, app)] = (time.time(), user)
-    return user
+    return user, renewed
 
 
 def list_sessions(user_id: int) -> list:

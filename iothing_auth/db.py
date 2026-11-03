@@ -92,8 +92,10 @@ _overrides: dict = {}  # the tests point the library at another database
 
 def configure(**values):
     """Override host, port, database, user, password (the tests; an app that keeps its own configuration)."""
+    global _ready
     _overrides.update({k: v for k, v in values.items() if v is not None})
     settings_cache.clear()
+    _ready = False  # another database: its tables are checked again
 
 
 def params() -> dict:

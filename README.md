@@ -80,5 +80,7 @@ and the old user tables are renamed `*_migrated`, not dropped.
 
 ## Tests
 
-`pytest` runs against a real MariaDB (`IOTHING_AUTH_DB_HOST`… ; it uses a database of its own, `auth_test`, and
-skips without a server).
+`pytest` needs a MariaDB of its own: a Docker container it starts itself (`iothing-test-mariadb`, kept for the next
+run), or the server named by `IOTHING_TEST_DB=host:port:user:password` (a user that may create and drop databases).
+It uses a database `iothing_auth_test` there, dropped and made again per test, and never a live `auth` database;
+without a test server it is skipped. The apps' suites use the same helper (`iothing_auth.testing`).

@@ -193,8 +193,9 @@ def plan(sources: dict) -> dict:
     return {"accounts": merged, "conflicts": conflicts}
 
 
-def apply(sources: dict, p: dict) -> dict:
-    """Write the plan: {app: {old id: new id}}."""
+def apply(sources: dict, p: dict, keep_old: bool = False) -> dict:
+    """Write the plan: {app: {old id: new id}}. keep_old: leave the apps' own user tables in place (the versions still
+    running keep working until they are updated; `iothing-auth retire` renames them afterwards)."""
     idmaps = {app: {} for app in sources}
     now = int(time.time())
     for m in p["accounts"]:
@@ -221,7 +222,8 @@ def apply(sources: dict, p: dict) -> dict:
             idmaps[app][old] = uid
     for app, src in sources.items():
         src.remap(idmaps[app])
-        src.retire()
+        if not keep_old:
+            src.retire()
         src.commit()
         db.ex("INSERT INTO meta (k, v) VALUES (%s, %s) ON DUPLICATE KEY UPDATE v = VALUES(v)", (f"migrated:{app}", json.dumps({"at": now, "ids": idmaps[app]})))
     users.invalidate()
@@ -251,6 +253,18 @@ def run(a) -> int:
     if not a.apply:
         print("dry run: nothing written (add --apply)")
         return 0
-    idmaps = apply(sources, p)
+    idmaps = apply(sources, p, keep_old=getattr(a, "keep_old", False))
     print("applied; old id -> shared id:", json.dumps(idmaps))
+    if getattr(a, "keep_old", False):
+        print("the apps' own user tables were left in place: run `iothing-auth retire` with the same sources once every app is updated")
+    return 0
+
+
+def retire(a) -> int:
+    """Rename the apps' own user tables to *_migrated (after --keep-old, once every app runs a version that uses the shared database)."""
+    sources = {app: Source(app, url) for app, url in (("iopix", a.iopix), ("ionotes", a.ionotes), ("iocontacts", a.iocontacts)) if url}
+    for app, src in sources.items():
+        src.retire()
+        src.commit()
+        print(f"{app}: old user tables renamed *_migrated")
     return 0

@@ -22,12 +22,18 @@ def main(argv=None):
     m.add_argument("--iocontacts", help="ioContacts' database: mysql://user:pw@host/db")
     m.add_argument("--apply", action="store_true", help="write the accounts (and remap the apps' own user ids)")
     m.add_argument("--report", default=None, help="write the report (JSON) here")
+    m.add_argument("--keep-old", action="store_true", help="leave the apps' own user tables in place (old versions keep working); `retire` renames them later")
+    rt = sub.add_parser("retire", help="rename the apps' own user tables to *_migrated (after migrate --keep-old)")
+    rt.add_argument("--iopix"); rt.add_argument("--ionotes"); rt.add_argument("--iocontacts")
     a = p.parse_args(argv)
 
     from iothing_auth import users
     if a.cmd == "migrate":
         from iothing_auth import migrate
         return migrate.run(a)
+    if a.cmd == "retire":
+        from iothing_auth import migrate
+        return migrate.retire(a)
     users.init()
     if a.cmd == "init":
         print("ok")

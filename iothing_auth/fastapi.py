@@ -161,11 +161,13 @@ class Auth:
         host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").lower()
         return site == "cross-site" or bool(origin and (origin == "null" or urlsplit(origin).netloc.lower() != host))
 
-    def middleware(self, open_paths=(), open_prefixes=("/api/auth/",), before=None, after=None, api_prefix="/api/"):
-        """A complete auth middleware: resolve, the require-sign-in rule (open_paths / open_prefixes stay reachable),
-        the cross-site check on writes, and the cookie afterwards. `before(request)` runs once the user is known and
-        may return a response (the app's own gates: MCP tokens...); `after(request, response)` runs at the end."""
+    def middleware(self, open_paths=(), open_prefixes=("/api/auth/",), is_open=None, before=None, after=None, api_prefix="/api/"):
+        """A complete auth middleware: resolve, the require-sign-in rule (open_paths / open_prefixes, or whatever
+        `is_open(path)` says, stay reachable; /api/auth/ always is), the cross-site check on writes, and the cookie
+        afterwards. `before(request)` runs once the user is known and may return a response (the app's own gates:
+        MCP tokens...); `after(request, response)` runs at the end."""
         auth = self
+        open_prefixes = tuple(open_prefixes) + ("/api/auth/",)
 
         async def guard(request: Request, call_next):
             refused = await auth.resolve(request)
@@ -179,7 +181,7 @@ class Auth:
                 if r is not None:
                     return r
             if request.state.user is None and await run_in_threadpool(users.require_login, auth.app):
-                if path not in open_paths and not any(path.startswith(p) for p in open_prefixes):
+                if path not in open_paths and not path.startswith(open_prefixes) and not (is_open and is_open(path)):
                     if getattr(request.state, "no_role_user", None):
                         return auth.no_access(request, request.state.no_role_user["name"])
                     return JSONResponse({"detail": f"Sign in to use {auth.label}."}, status_code=401,

@@ -91,8 +91,17 @@ class Source:
                             "created": r.get("created"), "last_login": None, "settings": {}, "data": data, "app_passwords": pws})
         return out
 
+    def drop_user_fks(self):
+        """ioContacts' tables point at its users table with foreign keys; the shared ids live elsewhere now."""
+        if self.kind != "mysql":
+            return
+        for r in self.q("SELECT TABLE_NAME t, CONSTRAINT_NAME c FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() "
+                        "AND REFERENCED_TABLE_NAME = 'users' AND TABLE_NAME != 'app_passwords'"):
+            self.ex(f"ALTER TABLE `{r['t']}` DROP FOREIGN KEY `{r['c']}`")
+
     def remap(self, idmap: dict):
         """Rewrite the user id columns to the shared ids (two passes: old ids and new ids may overlap)."""
+        self.drop_user_fks()
         for table, col in REMAP.get(self.app, []):
             if not self.has_table(table):
                 continue

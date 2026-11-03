@@ -44,8 +44,8 @@ def authenticate(name: str | None, password: str, app: str):
     if not password:
         return None
     user = None
-    m = re.match(r"^([a-z0-9]+)-([0-9a-f]{8})-", password)
-    if m and m.group(1) == app:
+    m = re.match(r"^([a-z0-9]+)-([0-9a-f]{8})-", password)  # the word is a hint only (ioc- from before the suite): the row says which app
+    if m:
         for r in db.q("SELECT * FROM app_passwords WHERE prefix = %s AND app = %s", (m.group(2), app)):
             if check_password(password, r["hash"]):
                 u = users.get(r["user_id"], app)

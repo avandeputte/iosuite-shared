@@ -102,7 +102,7 @@ class Source:
     PROXY_KEYS = ("auth_proxy", "auth_proxy_header", "auth_proxy_trusted", "auth_proxy_create", "cf_access_team", "cf_access_aud")
 
     def app_settings(self) -> dict:
-        """The settings that move to the auth database: require_login (per app) and the proxy sign-in keys (suite-wide)."""
+        """The settings that move to the Shared ioSuite database: require_login (per app) and the proxy sign-in keys (suite-wide)."""
         if self.app not in ("iopix", "ionotes") or not self.has_table("app_settings"):
             return {}
         rows = self.q("SELECT `key` AS k, value AS v FROM app_settings WHERE `key` IN (%s)" % ",".join("?" * (len(self.PROXY_KEYS) + 1)),

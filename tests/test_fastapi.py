@@ -128,7 +128,7 @@ def test_unreachable_auth_database_answers_503_not_open(monkeypatch):
     monkeypatch.setattr(db, "params", lambda: {"host": "203.0.113.1", "port": 1, "database": "x", "user": "x", "password": "x"})
     assert c.get("/api/status").status_code == 200  # the open path still answers
     r = c.get("/api/admin")
-    assert r.status_code == 503 and "account database" in r.json()["detail"]
+    assert r.status_code == 503 and "Shared ioSuite database" in r.json()["detail"]
     assert c.post("/api/auth/login", json={"name": "a", "password": "b"}).status_code == 503
 
 

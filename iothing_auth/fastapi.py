@@ -85,7 +85,7 @@ class Auth:
                  version: str = None, public_url: str = None, description: str = None, color: str = None, icon: str = None,
                  register: bool = True):
         """version, public_url (the app's PUBLIC_URL; empty: the address it is reached at), description, color and icon
-        go into the suite's list of apps (iothing_auth.suite) when the app first reaches the auth database; register=False
+        go into the suite's list of apps (iothing_auth.suite) when the app first reaches the Shared ioSuite database; register=False
         keeps the app out of it."""
         self.app = app
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
@@ -208,11 +208,11 @@ class Auth:
 
         async def guard(request: Request, call_next):
             path = request.url.path
-            if not await run_in_threadpool(db.available):  # the auth database is down: the shell and the open paths only, with a clear answer
+            if not await run_in_threadpool(db.available):  # the Shared ioSuite database is down: the shell and the open paths only, with a clear answer
                 request.state.user, request.state.via_proxy = None, False
                 if path in open_paths or (is_open and is_open(path)) or (path.startswith(open_prefixes) and not path.startswith("/api/auth/")):
                     return await call_next(request)
-                return JSONResponse({"detail": f"The account database cannot be reached ({db.error}); sign-in is unavailable until it is back."}, status_code=503)
+                return JSONResponse({"detail": f"The Shared ioSuite database cannot be reached ({db.error}); sign-in is unavailable until it is back."}, status_code=503)
             refused = await auth.resolve(request)
             if refused is not None:
                 return refused

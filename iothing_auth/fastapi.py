@@ -90,7 +90,7 @@ class Auth:
         self.app = app
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
                                 color=color, icon=icon) if register else None
-        self._registered = False
+        self._registered, self._retry_at = False, 0.0
         self.label = app_label or app
         self.proxy = Proxy(app)
         self.access = Access(read_only, read_only_message or f"{self.label} is in read-only mode; nothing can be changed.")
@@ -104,7 +104,7 @@ class Auth:
     # ---- the suite's list of apps
     def register(self) -> None:
         """Write this app's row in the suite's list (once per start; the middleware calls it). Never fails a request."""
-        if self._registered or self.suite_entry is None:
+        if self._registered or self.suite_entry is None or time.time() < self._retry_at:
             return
         try:
             suite.register(self.app, **self.suite_entry)
@@ -114,13 +114,15 @@ class Auth:
             suite.register(self.app, **{**self.suite_entry, "url": None})
             self._registered = True
         except Exception as e:  # noqa: BLE001 - the table is the suite's convenience, never a reason to fail
-            self.log.warning("could not register %s in the suite's list of apps: %s", self.app, e)
-            self._registered = True
+            self.log.warning("could not register %s in the suite's list of apps (tried again in a minute): %s", self.app, e)
+            self._retry_at = time.time() + 60
 
-    def _note(self, request: Request) -> None:
+    def note(self, request: Request) -> None:
+        """Register (once) and note the address this request reached the app at. resolve() calls it, so an app with
+        its own middleware gets it too."""
         try:
             self.register()
-            if self.suite_entry is not None:
+            if self._registered:
                 suite.note_seen(self.app, request)
         except Exception as e:  # noqa: BLE001
             self.log.debug("suite: %s", e)
@@ -133,6 +135,8 @@ class Auth:
         """Who is asking: the session cookie, the proxy's identity, HTTP Basic or a bearer app password.
         Sets request.state.user, .via_proxy, .cookie_uid, .proxy_ident; returns a response to send instead when the
         proxy let in someone who has no account and that is denied."""
+        if self.suite_entry is not None:
+            await run_in_threadpool(self.note, request)
         session = request.cookies.get(sessions.COOKIE)
         request.state.origin = sessions.describe(request, self.proxy)
         user, renewed = (await run_in_threadpool(sessions.lookup, session, self.app, request.state.origin)) if session else (None, False)
@@ -209,7 +213,6 @@ class Auth:
                 if path in open_paths or (is_open and is_open(path)) or (path.startswith(open_prefixes) and not path.startswith("/api/auth/")):
                     return await call_next(request)
                 return JSONResponse({"detail": f"The account database cannot be reached ({db.error}); sign-in is unavailable until it is back."}, status_code=503)
-            await run_in_threadpool(auth._note, request)
             refused = await auth.resolve(request)
             if refused is not None:
                 return refused

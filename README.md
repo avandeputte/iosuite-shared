@@ -72,7 +72,7 @@ auth = Auth("iocalendar", app_label="ioCalendar", version=APP_VERSION, public_ur
             description="Calendar", color="#963522", icon="/static/icons/icon.svg")
 ```
 
-At its first request the app registers (name, version, description, colour, icon, and its `PUBLIC_URL` when it has
+At its first request (`auth.resolve()`, which `auth.middleware()` calls, and so does an app's own middleware) the app registers (name, version, description, colour, icon, and its `PUBLIC_URL` when it has
 one), and the middleware keeps the best address it is reached at: a host under `IOTHING_COOKIE_DOMAIN` over HTTPS beats
 a LAN name, which beats an IP address; loopback and test hosts are never kept. `url` is the configured address, else
 that one. `register=False` keeps an app out.

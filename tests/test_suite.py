@@ -100,3 +100,21 @@ def test_api_lists_for_signed_in_and_suite_admins_forget():
     assert c.delete("/api/auth/suite/iopix").status_code == 200
     assert c.delete("/api/auth/suite/iopix").status_code == 404
     assert [a["app"] for a in c.get("/api/auth/suite").json()["items"]] == ["iosuite"]
+
+
+def test_an_app_with_its_own_middleware_registers_through_resolve():
+    suite.invalidate()
+    auth = Auth("iohealth", app_label="ioHealth", version="3.0")
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def mine(request, call_next):
+        await auth.resolve(request)
+        return await call_next(request)
+
+    @app.get("/x")
+    def x():
+        return {"ok": True}
+    TestClient(app, base_url="http://192.168.1.89:47800").get("/x")
+    r = suite.get("iohealth")
+    assert r["version"] == "3.0" and r["url"] == "http://192.168.1.89:47800"

@@ -1,4 +1,7 @@
-# iothing-auth
+# iosuite-shared
+
+The suite's shared library: the Python package `iothing-auth` (module `iothing_auth`). The repository was
+`avandeputte/iothing-auth` until 2026-11-04; GitHub redirects the old address.
 
 The Shared ioSuite database for the ioThing apps (ioPix, ioNotes, ioContacts): one account, one password, one session for
 the whole suite. Signed in at `photo.iothing.net`, a person is signed in at `notes.iothing.net` too.
@@ -20,7 +23,7 @@ LAN and is a viewer at most, everywhere.
 ## Install
 
 ```
-pip install git+ssh://git@github.com/avandeputte/iothing-auth.git
+pip install git+https://github.com/avandeputte/iosuite-shared.git
 ```
 
 Environment (the apps' `.env` files):

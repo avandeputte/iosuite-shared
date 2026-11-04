@@ -13,4 +13,4 @@ IOTHING_AUTH_DB_* and IOSUITE_SHARED_DB_* names still work), and
 IOTHING_COOKIE_DOMAIN (the domain the session cookie is shared on, e.g. iothing.net; a request from a host outside it,
 such as a LAN address, gets a cookie for that host only).
 """
-__version__ = "0.4.1"
+__version__ = "0.4.2"

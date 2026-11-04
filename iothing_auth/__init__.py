@@ -12,4 +12,4 @@ Configuration (environment): IOTHING_AUTH_DB_HOST, _PORT, _NAME, _USER, _PASSWOR
 IOTHING_COOKIE_DOMAIN (the domain the session cookie is shared on, e.g. iothing.net; a request from a host outside it,
 such as a LAN address, gets a cookie for that host only).
 """
-__version__ = "0.2.0"
+__version__ = "0.3.0"

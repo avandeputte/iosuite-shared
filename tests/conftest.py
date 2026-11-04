@@ -15,8 +15,9 @@ def fresh_db(monkeypatch):
     db.configure(**testing.fresh_database(DB))
     db._ready = False
     db.settings_cache.clear()
-    from iothing_auth import sessions, users
+    from iothing_auth import sessions, suite, users
     users.invalidate()
+    suite.invalidate()
     sessions.invalidate()
     monkeypatch.setattr("iothing_auth.passwords.SCRYPT", (2 ** 12, 8, 1))  # fast hashes for the tests
     monkeypatch.setattr("iothing_auth.config.ADMIN_USER", "")

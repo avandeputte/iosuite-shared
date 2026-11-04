@@ -97,7 +97,7 @@ def test_legacy_hash_is_upgraded():
 def test_shared_db_names_and_the_old_ones(monkeypatch):
     import importlib
     from iothing_auth import config
-    for p in ("IOSUITE_SHARED_DB_", "IOTHING_AUTH_DB_"):
+    for p in ("IOSUITE_DB_", "IOSUITE_SHARED_DB_", "IOTHING_AUTH_DB_"):
         for k in ("HOST", "PORT", "NAME", "USER", "PASSWORD"):
             monkeypatch.delenv(p + k, raising=False)
     try:
@@ -106,7 +106,10 @@ def test_shared_db_names_and_the_old_ones(monkeypatch):
         monkeypatch.setenv("IOTHING_AUTH_DB_NAME", "auth")
         importlib.reload(config)
         assert config.DB_NAME == "auth" and config.DB_EXPLICIT
-        monkeypatch.setenv("IOSUITE_SHARED_DB_NAME", "iosuite")
+        monkeypatch.setenv("IOSUITE_SHARED_DB_NAME", "shared")
+        importlib.reload(config)
+        assert config.DB_NAME == "shared"
+        monkeypatch.setenv("IOSUITE_DB_NAME", "iosuite")
         importlib.reload(config)
         assert config.DB_NAME == "iosuite"
     finally:

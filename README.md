@@ -26,14 +26,14 @@ pip install git+ssh://git@github.com/avandeputte/iothing-auth.git
 Environment (the apps' `.env` files):
 
 ```
-IOSUITE_SHARED_DB_HOST=192.168.1.89   IOSUITE_SHARED_DB_PORT=3306
-IOSUITE_SHARED_DB_NAME=iosuite         IOSUITE_SHARED_DB_USER=iosuite   IOSUITE_SHARED_DB_PASSWORD=…
+IOSUITE_DB_HOST=192.168.1.89   IOSUITE_DB_PORT=3306
+IOSUITE_DB_NAME=iosuite         IOSUITE_DB_USER=iosuite   IOSUITE_DB_PASSWORD=…
 IOTHING_COOKIE_DOMAIN=iothing.net   # the session cookie is shared by every host under it; a LAN address gets its own
 ```
 
 The database is the **Shared ioSuite database** (until 0.4 "the auth database"): accounts, sessions, roles and app
 passwords, and the suite-wide settings and list of apps. Its default name and account are `iosuite`. The variables'
-older names (`IOTHING_AUTH_DB_HOST` …) still work, so an existing install keeps its `auth` database; one that set
+older names (`IOTHING_AUTH_DB_HOST` …, and `IOSUITE_SHARED_DB_HOST` … from 0.4.0) still work, so an existing install keeps its `auth` database; one that set
 nothing and relied on the old defaults (`auth`/`auth`) is found too, with a warning to set the variables.
 
 Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PROXY_CREATE`, `CF_ACCESS_TEAM`,

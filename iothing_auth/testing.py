@@ -91,11 +91,12 @@ def fresh_database(name: str) -> dict:
 
 
 def auth_env(name: str) -> dict:
-    """A fresh Shared ioSuite database for a test session, as the IOSUITE_SHARED_DB_* variables an app process reads
-    (and the IOTHING_AUTH_DB_* names they had before 0.4, for a suite that still pops or reads those)."""
+    """A fresh Shared ioSuite database for a test session, as the IOSUITE_DB_* variables an app process reads
+    (and the older IOTHING_AUTH_DB_* and IOSUITE_SHARED_DB_* names, for a suite that still pops or reads those)."""
     s = fresh_database(name)
     out = {}
     for k, v in s.items():
         key = "NAME" if k == "database" else k.upper()
-        out["IOSUITE_SHARED_DB_" + key] = out["IOTHING_AUTH_DB_" + key] = str(v)
+        for p in ("IOSUITE_DB_", "IOSUITE_SHARED_DB_", "IOTHING_AUTH_DB_"):
+            out[p + key] = str(v)
     return out

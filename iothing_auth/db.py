@@ -230,7 +230,7 @@ def _legacy_fallback():
             raise first
     import logging
     logging.getLogger("iothing_auth").warning(
-        "the Shared ioSuite database: using the old defaults (database and user 'auth'); set IOSUITE_SHARED_DB_NAME, _USER "
+        "the Shared ioSuite database: using the old defaults (database and user 'auth'); set IOSUITE_DB_NAME, _USER "
         "and _PASSWORD to say so and silence this")
     _overrides.update(legacy)
 

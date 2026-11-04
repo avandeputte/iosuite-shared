@@ -10,7 +10,7 @@ The header is believed only from the proxy itself, never from anyone who can rea
   machine only, 127.0.0.1 and ::1), the address the proxy connects from.
 
 Settings: the environment wins (AUTH_PROXY, AUTH_PROXY_HEADER, AUTH_PROXY_TRUSTED, AUTH_PROXY_CREATE, CF_ACCESS_TEAM,
-CF_ACCESS_AUD), else what an admin saved in the auth database, for the app or suite-wide (one Cloudflare Access
+CF_ACCESS_AUD), else what an admin saved in the Shared ioSuite database, for the app or suite-wide (one Cloudflare Access
 application covering *.iothing.net is stored once, suite-wide).
 """
 import ipaddress

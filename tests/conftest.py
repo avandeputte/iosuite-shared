@@ -1,6 +1,6 @@
 """The tests run against a MariaDB of their own (iothing_auth.testing: a Docker container, or the server named by
 IOTHING_TEST_DB=host:port:user:password), in a database `iothing_auth_test` dropped and made again for every test.
-They never touch a real `auth` database; without a test server they are skipped."""
+They never touch a real Shared ioSuite database; without a test server they are skipped."""
 import pytest
 
 from iothing_auth import db, testing

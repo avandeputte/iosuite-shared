@@ -1,6 +1,6 @@
 """The MariaDB the test suites run against: never a real server unless asked.
 
-The library's own tests and the apps' suites need a MariaDB for the auth database. Two ways, the same as iopix:
+The library's own tests and the apps' suites need a MariaDB for the Shared ioSuite database. Two ways, the same as iopix:
 
 - IOTHING_TEST_DB=host:port:user:password names one (CI uses a MariaDB service this way). The user must be allowed
   to CREATE and DROP databases: every run starts from empty databases of its own.
@@ -8,7 +8,7 @@ The library's own tests and the apps' suites need a MariaDB for the auth databas
   the next run (`docker rm -f iothing-test-mariadb` throws it away). Without Docker and without IOTHING_TEST_DB the
   suite is skipped with a message that says so.
 
-Nothing here ever touches the suite's live `auth` database: the test databases are made on that test server and
+Nothing here ever touches the suite's live Shared ioSuite database: the test databases are made on that test server and
 dropped at the start of every session.
 """
 import os
@@ -91,6 +91,11 @@ def fresh_database(name: str) -> dict:
 
 
 def auth_env(name: str) -> dict:
-    """A fresh auth database for a test session, as the IOTHING_AUTH_DB_* variables an app process reads."""
+    """A fresh Shared ioSuite database for a test session, as the IOSUITE_SHARED_DB_* variables an app process reads
+    (and the IOTHING_AUTH_DB_* names they had before 0.4, for a suite that still pops or reads those)."""
     s = fresh_database(name)
-    return {"IOTHING_AUTH_DB_" + ("NAME" if k == "database" else k.upper()): str(v) for k, v in s.items()}
+    out = {}
+    for k, v in s.items():
+        key = "NAME" if k == "database" else k.upper()
+        out["IOSUITE_SHARED_DB_" + key] = out["IOTHING_AUTH_DB_" + key] = str(v)
+    return out

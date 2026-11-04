@@ -31,7 +31,7 @@ def invalidate():
 
 def init() -> bool:
     """The tables, and the admin named by ADMIN_USER / ADMIN_PASSWORD on a first start with no accounts yet. When the
-    auth database cannot be reached the app still starts: False, db.error says why, and every request that needs an
+    Shared ioSuite database cannot be reached the app still starts: False, db.error says why, and every request that needs an
     account is answered 503 until the database is back (the middleware retries)."""
     from iothing_auth import config
     import logging
@@ -39,7 +39,7 @@ def init() -> bool:
         db.init()
     except Exception as e:
         db.error = str(e)[:300]
-        logging.getLogger("iothing_auth").error("the auth database (%s:%s/%s) cannot be reached: %s", db.params()["host"], db.params()["port"], db.params()["database"], e)
+        logging.getLogger("iothing_auth").error("the Shared ioSuite database (%s:%s/%s) cannot be reached: %s", db.params()["host"], db.params()["port"], db.params()["database"], e)
         return False
     db.error = None
     if config.ADMIN_USER and config.ADMIN_PASSWORD and not any_users():

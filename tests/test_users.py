@@ -92,3 +92,23 @@ def test_legacy_hash_is_upgraded():
     assert needs_rehash(old)
     u = users.authenticate("old", "oldpass123")
     assert u and not needs_rehash(db.one("SELECT hash FROM users WHERE id = %s", (u["id"],))["hash"])
+
+
+def test_shared_db_names_and_the_old_ones(monkeypatch):
+    import importlib
+    from iothing_auth import config
+    for p in ("IOSUITE_SHARED_DB_", "IOTHING_AUTH_DB_"):
+        for k in ("HOST", "PORT", "NAME", "USER", "PASSWORD"):
+            monkeypatch.delenv(p + k, raising=False)
+    try:
+        importlib.reload(config)
+        assert (config.DB_NAME, config.DB_USER, config.DB_PASSWORD) == ("iosuite", "iosuite", "iosuite") and not config.DB_EXPLICIT
+        monkeypatch.setenv("IOTHING_AUTH_DB_NAME", "auth")
+        importlib.reload(config)
+        assert config.DB_NAME == "auth" and config.DB_EXPLICIT
+        monkeypatch.setenv("IOSUITE_SHARED_DB_NAME", "iosuite")
+        importlib.reload(config)
+        assert config.DB_NAME == "iosuite"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)

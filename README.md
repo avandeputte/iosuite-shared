@@ -1,6 +1,6 @@
 # iothing-auth
 
-One user database for the ioThing apps (ioPix, ioNotes, ioContacts): one account, one password, one session for
+The Shared ioSuite database for the ioThing apps (ioPix, ioNotes, ioContacts): one account, one password, one session for
 the whole suite. Signed in at `photo.iothing.net`, a person is signed in at `notes.iothing.net` too.
 
 ## What is shared, what is per app
@@ -26,10 +26,15 @@ pip install git+ssh://git@github.com/avandeputte/iothing-auth.git
 Environment (the apps' `.env` files):
 
 ```
-IOTHING_AUTH_DB_HOST=192.168.1.89   IOTHING_AUTH_DB_PORT=3306
-IOTHING_AUTH_DB_NAME=auth           IOTHING_AUTH_DB_USER=auth     IOTHING_AUTH_DB_PASSWORD=…
+IOSUITE_SHARED_DB_HOST=192.168.1.89   IOSUITE_SHARED_DB_PORT=3306
+IOSUITE_SHARED_DB_NAME=iosuite         IOSUITE_SHARED_DB_USER=iosuite   IOSUITE_SHARED_DB_PASSWORD=…
 IOTHING_COOKIE_DOMAIN=iothing.net   # the session cookie is shared by every host under it; a LAN address gets its own
 ```
+
+The database is the **Shared ioSuite database** (until 0.4 "the auth database"): accounts, sessions, roles and app
+passwords, and the suite-wide settings and list of apps. Its default name and account are `iosuite`. The variables'
+older names (`IOTHING_AUTH_DB_HOST` …) still work, so an existing install keeps its `auth` database; one that set
+nothing and relied on the old defaults (`auth`/`auth`) is found too, with a warning to set the variables.
 
 Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PROXY_CREATE`, `CF_ACCESS_TEAM`,
 `CF_ACCESS_AUD`) can come from the environment of each app (wins) or be saved once, suite-wide, from any app's
@@ -64,7 +69,7 @@ Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, cha
 
 ## The suite's apps
 
-Each app installs on its own, so the auth database also keeps the list of the suite's apps (table `suite_apps`), which
+Each app installs on its own, so the Shared ioSuite database also keeps the list of the suite's apps (table `suite_apps`), which
 every app writes itself: no address to type into the start page or into another app.
 
 ```python
@@ -106,5 +111,5 @@ and the old user tables are renamed `*_migrated`, not dropped.
 
 `pytest` needs a MariaDB of its own: a Docker container it starts itself (`iothing-test-mariadb`, kept for the next
 run), or the server named by `IOTHING_TEST_DB=host:port:user:password` (a user that may create and drop databases).
-It uses a database `iothing_auth_test` there, dropped and made again per test, and never a live `auth` database;
+It uses a database `iothing_auth_test` there, dropped and made again per test, and never a live Shared ioSuite database;
 without a test server it is skipped. The apps' suites use the same helper (`iothing_auth.testing`).

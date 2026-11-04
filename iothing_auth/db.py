@@ -13,7 +13,7 @@ from pymysql.cursors import DictCursor
 
 from iothing_auth import config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = [
     """CREATE TABLE IF NOT EXISTS meta (
@@ -93,9 +93,25 @@ SCHEMA = [
         v MEDIUMTEXT NOT NULL,
         PRIMARY KEY (app, k)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
+    # the suite's apps, each written by the app itself when it starts (iothing_auth.suite): what it is called, its
+    # version, and where it is (the address its configuration names, else the best one it was reached at), so the start
+    # page and the others link to it without anybody typing an address
+    """CREATE TABLE IF NOT EXISTS suite_apps (
+        app VARCHAR(32) PRIMARY KEY,
+        name VARCHAR(64) NOT NULL,
+        description VARCHAR(255) NULL,
+        version VARCHAR(32) NULL,
+        color VARCHAR(16) NULL,
+        icon VARCHAR(512) NULL,
+        configured_url VARCHAR(512) NULL,
+        seen_url VARCHAR(512) NULL,
+        registered BIGINT NOT NULL,
+        updated BIGINT NOT NULL,
+        last_seen BIGINT NULL
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
 ]
 
-# schema 2 (sessions carry where they began and were last seen)
+# schema 2 (sessions carry where they began and were last seen); schema 3 only adds a table (suite_apps)
 UPGRADES = [
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip VARCHAR(64) NULL",
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS cloudflare TINYINT NOT NULL DEFAULT 0",

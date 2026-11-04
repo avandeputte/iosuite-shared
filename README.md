@@ -47,7 +47,7 @@ auth.decorate = lambda u: {**u, "person": users.get_value(u["id"], "iopix", "per
 
 app.middleware("http")(auth.middleware(open_paths=("/", "/index.html"), open_prefixes=("/static/", "/api/auth/"), before=my_gate))
 app.include_router(auth.router())         # /api/auth/login, accounts, logout, logout_all, me, settings, password, setup,
-                                          #           sessions (list, DELETE one), app-passwords, proxy
+                                          #           sessions (list, DELETE one), app-passwords, proxy, suite
 app.include_router(auth.users_router())   # /api/users (admins of this app), /api/users/{id}/sessions (list, DELETE all or ?session=)
 
 @router.post("/api/photos/tag", dependencies=[auth.access.editor_write])
@@ -61,6 +61,30 @@ the ionotes/iocontacts ones (which copied them) keep working.
 
 Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, changes)`, and for anything else
 `users.get_value / set_value(uid, app, key, value)` (JSON values).
+
+## The suite's apps
+
+Each app installs on its own, so the auth database also keeps the list of the suite's apps (table `suite_apps`), which
+every app writes itself: no address to type into the start page or into another app.
+
+```python
+auth = Auth("iocalendar", app_label="ioCalendar", version=APP_VERSION, public_url=config.PUBLIC_URL,
+            description="Calendar", color="#963522", icon="/static/icons/icon.svg")
+```
+
+At its first request the app registers (name, version, description, colour, icon, and its `PUBLIC_URL` when it has
+one), and the middleware keeps the best address it is reached at: a host under `IOTHING_COOKIE_DOMAIN` over HTTPS beats
+a LAN name, which beats an IP address; loopback and test hosts are never kept. `url` is the configured address, else
+that one. `register=False` keeps an app out.
+
+```python
+from iothing_auth import suite
+suite.apps()            # [{app, name, description, version, color, icon, url, configuredUrl, seenUrl, lastSeen, ...}]
+suite.url_of("iopix")   # "https://photo.iothing.net" or None
+```
+
+Over HTTP: `GET /api/auth/suite` (signed in) lists them; `DELETE /api/auth/suite/{app}` (suite admins) forgets an
+uninstalled one (it comes back if it starts again).
 
 ## Command line
 

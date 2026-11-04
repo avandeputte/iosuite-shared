@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from iothing_auth import apppasswords, db, sessions, users
+from iothing_auth import apppasswords, db, sessions, suite, users
 from iothing_auth.proxyauth import Proxy, authlog, peer_of, remember_peer, seen
 
 ACCESS_ROLES = ("public", "signed_in", "editor", "admin", "suite_admin")
@@ -81,8 +81,16 @@ def json_body(request: Request):
 
 
 class Auth:
-    def __init__(self, app: str, read_only=None, read_only_message: str = None, app_label: str = None, basic_realm: str = None):
+    def __init__(self, app: str, read_only=None, read_only_message: str = None, app_label: str = None, basic_realm: str = None,
+                 version: str = None, public_url: str = None, description: str = None, color: str = None, icon: str = None,
+                 register: bool = True):
+        """version, public_url (the app's PUBLIC_URL; empty: the address it is reached at), description, color and icon
+        go into the suite's list of apps (iothing_auth.suite) when the app first reaches the auth database; register=False
+        keeps the app out of it."""
         self.app = app
+        self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
+                                color=color, icon=icon) if register else None
+        self._registered = False
         self.label = app_label or app
         self.proxy = Proxy(app)
         self.access = Access(read_only, read_only_message or f"{self.label} is in read-only mode; nothing can be changed.")
@@ -92,6 +100,30 @@ class Auth:
         self.on_update = None  # on_update(user_id, body) after an admin changed an account: the app's own fields (iopix: the person tag)
         self.deny_exempt = ()  # path prefixes a denied proxy identity may still reach (iopix: /mcp, which signs in with its own token)
         remember_peer()
+
+    # ---- the suite's list of apps
+    def register(self) -> None:
+        """Write this app's row in the suite's list (once per start; the middleware calls it). Never fails a request."""
+        if self._registered or self.suite_entry is None:
+            return
+        try:
+            suite.register(self.app, **self.suite_entry)
+            self._registered = True
+        except ValueError as e:  # a PUBLIC_URL that is not an address: registered without it
+            self.log.warning("suite registration: %s; registering without the address", e)
+            suite.register(self.app, **{**self.suite_entry, "url": None})
+            self._registered = True
+        except Exception as e:  # noqa: BLE001 - the table is the suite's convenience, never a reason to fail
+            self.log.warning("could not register %s in the suite's list of apps: %s", self.app, e)
+            self._registered = True
+
+    def _note(self, request: Request) -> None:
+        try:
+            self.register()
+            if self.suite_entry is not None:
+                suite.note_seen(self.app, request)
+        except Exception as e:  # noqa: BLE001
+            self.log.debug("suite: %s", e)
 
     # ---- who is asking
     def current_user(self, request: Request):
@@ -177,6 +209,7 @@ class Auth:
                 if path in open_paths or (is_open and is_open(path)) or (path.startswith(open_prefixes) and not path.startswith("/api/auth/")):
                     return await call_next(request)
                 return JSONResponse({"detail": f"The account database cannot be reached ({db.error}); sign-in is unavailable until it is back."}, status_code=503)
+            await run_in_threadpool(auth._note, request)
             refused = await auth.resolve(request)
             if refused is not None:
                 return refused
@@ -399,6 +432,24 @@ class Auth:
             body = await json_body(request)
             proxy.save(body, suite_wide=bool(body.get("suiteWide", True)))
             return proxy.status()
+
+        @r.get("/api/auth/suite", dependencies=[access.signed_in])
+        def api_suite(request: Request):
+            """The suite's installed apps and where they are, for the start page and app switchers."""
+            if not users.is_signed_in(auth.current_user(request)):
+                raise HTTPException(401, "Sign in first")
+            return {"items": suite.apps(), "app": app}
+
+        @r.delete("/api/auth/suite/{key}", dependencies=[access.suite_admin])
+        def api_suite_forget(key: str, request: Request):
+            """Forget an app that was uninstalled (suite admins); it registers again if it starts."""
+            if not users.is_suite_admin(auth.current_user(request)):
+                raise HTTPException(403, "Suite admins only")
+            if not suite.forget(key):
+                raise HTTPException(404, "No such app")
+            if key == app:
+                auth._registered = False
+            return {"items": suite.apps(), "app": app}
 
         return r
 

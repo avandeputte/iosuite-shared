@@ -18,10 +18,10 @@ def make_app(name, **kw):
 
 
 def test_register_keeps_one_row_and_clears_what_the_app_no_longer_says():
-    suite.register("iopix", "ioPix", url="https://photo.iothing.net/", version="1.0", color="#3b4a8c", icon="/static/icon.svg")
+    suite.register("iopix", "ioPix", url="https://photo.iothing.net/", version="1.0", color="#3b4a8c")
     r = suite.get("iopix")
     assert r["url"] == "https://photo.iothing.net" and r["configuredUrl"] == "https://photo.iothing.net"
-    assert r["icon"] == "https://photo.iothing.net/static/icon.svg" and r["version"] == "1.0"
+    assert r["icon"] == "https://photo.iothing.net/static/icons/mark.svg" and r["version"] == "1.0"
     suite.register("iopix", "ioPix", version="1.1")
     r = suite.get("iopix")
     assert r["url"] is None and r["version"] == "1.1" and r["color"] is None
@@ -50,7 +50,7 @@ def test_rank_prefers_the_shared_domain_over_https(monkeypatch):
 def test_middleware_registers_and_notes_the_best_address(monkeypatch):
     monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
     suite.invalidate()
-    app, _ = make_app("iocalendar", label="ioCalendar", version="0.4.0", color="#963522", icon="static/icons/icon.svg")
+    app, _ = make_app("iocalendar", label="ioCalendar", version="0.4.0", color="#963522")
     TestClient(app, base_url="http://testserver").get("/api/x")
     r = suite.get("iocalendar")
     assert r["name"] == "ioCalendar" and r["version"] == "0.4.0" and r["url"] is None  # a test host is never kept
@@ -61,7 +61,7 @@ def test_middleware_registers_and_notes_the_best_address(monkeypatch):
     c = TestClient(app, base_url="http://10.0.0.5:8620")
     c.get("/api/x", headers={"x-forwarded-proto": "https", "x-forwarded-host": "calendar.iothing.net"})
     assert suite.get("iocalendar")["url"] == "https://calendar.iothing.net"
-    assert suite.get("iocalendar")["icon"] == "https://calendar.iothing.net/static/icons/icon.svg"
+    assert suite.get("iocalendar")["icon"] == "https://calendar.iothing.net/static/icons/mark.svg"
     TestClient(app, base_url="http://192.168.1.89:8620").get("/api/x")  # a worse address does not replace it
     assert suite.get("iocalendar")["url"] == "https://calendar.iothing.net"
 

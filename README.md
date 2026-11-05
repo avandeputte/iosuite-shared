@@ -134,8 +134,11 @@ every app writes itself: no address to type into the start page or into another 
 
 ```python
 auth = Auth("iocalendar", app_label="ioCalendar", version=__version__, public_url=config.PUBLIC_URL,
-            description="Calendar", color="#963522", icon="/static/icons/icon.svg")
+            description="Calendar", color="#963522")
 ```
+
+Every app serves its web app's files under `/static/` and its mark at `/static/icons/mark.svg` (`suite.ICON`,
+`static/icons/mark.svg` in the repo), so the icon is not something an app passes.
 
 At its first request (`auth.resolve()`, which `auth.middleware()` calls, and so does an app's own middleware) the app registers (name, version, description, colour, icon, and its `PUBLIC_URL` when it has
 one), and the middleware keeps the best address it is reached at: a host under `COOKIE_DOMAIN` over HTTPS beats

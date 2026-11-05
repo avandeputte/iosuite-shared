@@ -109,3 +109,17 @@ def test_shared_db_names(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(config)
+
+
+def test_cli_admin_creates_then_promotes(monkeypatch, capsys):
+    from iosuite_shared import cli, users
+    monkeypatch.setenv("ADMIN_PASSWORD", "long-enough-1")
+    cli.main(["admin", "alex", "--app", "iocalendar"])
+    u = users.find("alex")
+    assert u["suiteAdmin"] and users.roles_of(u["id"]).get("iocalendar") == "admin"
+    cli.main(["admin", "sam", "--app", "iocalendar"])
+    cli.main(["admin", "sam", "--app", "ionotes"])
+    s = users.find("sam")
+    assert not s["suiteAdmin"] and users.roles_of(s["id"]) == {"iocalendar": "admin", "ionotes": "admin"}
+    cli.main(["check"])
+    assert "2 account(s)" in capsys.readouterr().out

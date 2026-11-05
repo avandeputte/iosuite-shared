@@ -10,8 +10,8 @@ FILE_NAME = "config.env"
 
 
 def load_file(folder) -> Path:
-    """Read <folder>/config.env into the environment (variables already set win). Call it before anything reads the
-    settings, iosuite_shared's included: the values below are read once, when this module is imported."""
+    """Read <folder>/config.env into the environment (variables already set win), and the settings below again. Call
+    it first, before the app or iosuite_shared's other modules read a setting."""
     p = Path(folder) / FILE_NAME
     if p.is_file():
         for line in p.read_text(encoding="utf-8").splitlines():
@@ -23,6 +23,7 @@ def load_file(folder) -> Path:
                     v = v[1:-1]
                 if k:
                     os.environ.setdefault(k, v)
+    _read()
     return p
 
 
@@ -51,31 +52,37 @@ def env_int(name: str, default: int) -> int:
 # IOSUITE_DB_HOST, _PORT, _NAME, _USER, _PASSWORD. By default it is on the same server as the app's own database
 # (DB_HOST, DB_PORT), with database and user `iosuite`.
 PREFIX = "IOSUITE_DB_"
-DEFAULTS = {"HOST": env("DB_HOST", "127.0.0.1"), "PORT": env("DB_PORT", "3306"), "NAME": "iosuite", "USER": "iosuite",
-            "PASSWORD": "iosuite"}
 
 
 def shared_db(key: str) -> str:
-    return env(PREFIX + key, DEFAULTS[key]) if key != "PASSWORD" else os.environ.get(PREFIX + key, DEFAULTS[key])
-
-
-DB_HOST = shared_db("HOST")
-DB_PORT = int(shared_db("PORT"))
-DB_NAME = shared_db("NAME")
-DB_USER = shared_db("USER")
-DB_PASSWORD = shared_db("PASSWORD")
-
-# the domain the session cookie is shared on (no leading dot): every host under it gets the same cookie
-COOKIE_DOMAIN = env("COOKIE_DOMAIN").lstrip(".").lower()
-COOKIE = env("COOKIE_NAME", "iothing_session")
-SESSION_DAYS = env_int("SESSION_DAYS", 30)
-
-# the first admin on an empty database (containers, installers)
-ADMIN_USER = env("ADMIN_USER")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+    defaults = {"HOST": env("DB_HOST", "127.0.0.1"), "PORT": env("DB_PORT", "3306"), "NAME": "iosuite", "USER": "iosuite",
+                "PASSWORD": "iosuite"}
+    return env(PREFIX + key, defaults[key]) if key != "PASSWORD" else os.environ.get(PREFIX + key, defaults[key])
 
 
 def proxy_env(name: str):
     """A proxy sign-in setting from the environment (AUTH_PROXY, CF_ACCESS_TEAM...), or None when unset."""
     v = os.environ.get(name)
     return v.strip() if v is not None and v.strip() != "" else None
+
+
+def _read():
+    """The settings, from the environment as it is now."""
+    global DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, COOKIE_DOMAIN, COOKIE, SESSION_DAYS, ADMIN_USER, ADMIN_PASSWORD
+    DB_HOST = shared_db("HOST")
+    DB_PORT = int(shared_db("PORT"))
+    DB_NAME = shared_db("NAME")
+    DB_USER = shared_db("USER")
+    DB_PASSWORD = shared_db("PASSWORD")
+
+    # the domain the session cookie is shared on (no leading dot): every host under it gets the same cookie
+    COOKIE_DOMAIN = env("COOKIE_DOMAIN").lstrip(".").lower()
+    COOKIE = env("COOKIE_NAME", "iothing_session")
+    SESSION_DAYS = env_int("SESSION_DAYS", 30)
+
+    # the first admin on an empty database (containers, installers)
+    ADMIN_USER = env("ADMIN_USER")
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
+
+_read()

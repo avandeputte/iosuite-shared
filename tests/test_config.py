@@ -22,6 +22,20 @@ def test_load_file_fills_only_what_is_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("A_ONE"); monkeypatch.delenv("A_TWO")
 
 
+def test_load_file_refreshes_the_settings(tmp_path, monkeypatch):
+    monkeypatch.delenv("COOKIE_DOMAIN", raising=False)
+    monkeypatch.delenv("IOSUITE_DB_HOST", raising=False)
+    (tmp_path / "config.env").write_text("COOKIE_DOMAIN=example.org\nDB_HOST=db.example.lan\n")
+    try:
+        config.load_file(tmp_path)
+        assert config.COOKIE_DOMAIN == "example.org" and config.DB_HOST == "db.example.lan"
+    finally:
+        monkeypatch.delenv("COOKIE_DOMAIN", raising=False)
+        monkeypatch.delenv("DB_HOST", raising=False)
+        monkeypatch.undo()
+        config._read()
+
+
 def test_load_file_without_a_file(tmp_path):
     assert not config.load_file(tmp_path).exists()
 

@@ -23,6 +23,9 @@ from iosuite_shared import config, db
 PORTS = {"iopix": 8600, "ionotes": 8610, "iocalendar": 8620, "iosuite": 8630, "iocontacts": 8640, "iohealth": 47800}
 
 FIELDS = ("name", "description", "version", "color", "icon")
+# Where every app serves its mark (static/icons/mark.svg in its repo, the web app's files under /static/): the same in
+# every app, so it is not something an app passes.
+ICON = "/static/icons/mark.svg"
 SEEN_EVERY_S = 3600  # last_seen is refreshed at most this often per app (the address itself is written when it changes)
 
 _lock = threading.Lock()
@@ -45,17 +48,17 @@ def clean_url(url) -> str | None:
 
 
 def register(app: str, name: str = None, url: str = None, version: str = None, description: str = None,
-             color: str = None, icon: str = None) -> dict:
+             color: str = None) -> dict:
     """Write (or refresh) this app's row: its display name, the address its configuration names (None: none, the
-    address it is reached at is used), its version, a line on what it is, its colour (#rrggbb) and an icon path on the
-    app (/static/icon.svg) or a full URL. Called at every start; whatever the app no longer says is cleared."""
+    address it is reached at is used), its version, a line on what it is and its colour (#rrggbb); the icon is ICON on
+    the app. Called at every start; whatever the app no longer says is cleared."""
     if not app or len(app) > 32:
         raise ValueError("an app key of 1 to 32 characters")
     with _lock:
         _seen.pop(app, None)
     now = int(time.time())
     row = {"name": _clip(name or app, 64), "description": _clip(description, 255), "version": _clip(version, 32),
-           "color": _clip(color, 16), "icon": _clip(icon, 512), "configured_url": clean_url(url)}
+           "color": _clip(color, 16), "icon": ICON, "configured_url": clean_url(url)}
     db.ex("""INSERT INTO ios_apps (app, name, description, version, color, icon, configured_url, created_at, updated_at, last_seen_at)
              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
              ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), version = VALUES(version),

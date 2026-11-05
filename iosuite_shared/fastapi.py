@@ -82,14 +82,14 @@ def json_body(request: Request):
 
 class Auth:
     def __init__(self, app: str, read_only=None, read_only_message: str = None, app_label: str = None, basic_realm: str = None,
-                 version: str = None, public_url: str = None, description: str = None, color: str = None, icon: str = None,
+                 version: str = None, public_url: str = None, description: str = None, color: str = None,
                  register: bool = True):
-        """version, public_url (the app's PUBLIC_URL; empty: the address it is reached at), description, color and icon
-        go into the suite's list of apps (iosuite_shared.suite) when the app first reaches the Shared ioSuite database; register=False
+        """version, public_url (the app's PUBLIC_URL; empty: the address it is reached at), description and color (the
+        icon is suite.ICON, the same path in every app) go into the suite's list of apps (iosuite_shared.suite) when the app first reaches the Shared ioSuite database; register=False
         keeps the app out of it."""
         self.app = app
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
-                                color=color, icon=icon) if register else None
+                                color=color) if register else None
         self._registered, self._retry_at = False, 0.0
         self.label = app_label or app
         self.proxy = Proxy(app)

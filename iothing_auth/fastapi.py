@@ -529,6 +529,78 @@ class Auth:
 
         return r
 
+    def server_router(self, updater, log_file=None, info=None, apply=None) -> APIRouter:
+        """Maintenance › Updates and logs, the same in every app (admins):
+            GET  /api/server                 the installed version, the last check, whether update.sh can run, the switches
+            POST /api/server {action, ref?}  action: check | update | token | regenerate_token | restart; {autoCheck: bool}
+                                             saves the daily-check switch; anything else goes to apply(body)
+            GET  /api/log?lines&level&contains&requests   the tail of the server log (with log_file)
+            GET  /api/log/download
+        `info()` returns extra fields for GET /api/server (the app's: mcpEnabled, database...); `apply(body)` saves the
+        app's own switches sent in the POST body and raises ValueError when one cannot be set."""
+        from fastapi.responses import FileResponse
+        from iothing_auth import updates as upd
+        access, label = self.access, self.label
+        r = APIRouter()
+
+        def server_info():
+            extra = info() if info else {}
+            return {**updater.status(), **(extra or {})}
+
+        @r.get("/api/server", dependencies=[access.admin])
+        async def api_server_info():
+            return await run_in_threadpool(server_info)
+
+        @r.post("/api/server", dependencies=[access.admin])
+        async def api_server_action(request: Request):
+            body = await json_body(request) if int(request.headers.get("content-length") or 0) else {}
+            try:
+                if "autoCheck" in body:
+                    await run_in_threadpool(updater.set_auto_check, bool(body["autoCheck"]))
+                if apply:
+                    rr = apply(body)
+                    if hasattr(rr, "__await__"):
+                        await rr
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            action = body.get("action")
+            if action == "check":
+                return await run_in_threadpool(updater.check)
+            if action == "update":
+                try:
+                    updater.run(str(body.get("ref") or ""))
+                except RuntimeError as e:
+                    raise HTTPException(409, str(e))
+                return {"started": True}
+            if action == "token":
+                return {"token": await run_in_threadpool(updater.admin_token), "fromEnv": bool(updater.token_env)}
+            if action == "regenerate_token":
+                try:
+                    return {"token": await run_in_threadpool(updater.regenerate_token), "fromEnv": False}
+                except ValueError as e:
+                    raise HTTPException(400, str(e))
+            if action == "restart":
+                authlog.info("%s restarted by %s", label, (self.current_user(request) or {}).get("name"))
+                updater.restart()
+                return {"ok": True}
+            if action:
+                raise HTTPException(400, "action must be check, update, token, regenerate_token or restart")
+            return await run_in_threadpool(server_info)
+
+        if log_file:
+            @r.get("/api/log", dependencies=[access.admin])
+            def api_log(lines: int = 300, level: str = "any", contains: str = "", requests: int = 0):
+                return upd.tail(log_file, lines, contains[:200], level if level in upd.LEVELS else "any", bool(requests))
+
+            @r.get("/api/log/download", dependencies=[access.admin])
+            def api_log_download():
+                from pathlib import Path
+                if not Path(log_file).exists():
+                    raise HTTPException(404, "No log file yet")
+                return FileResponse(str(log_file), media_type="text/plain", filename=f"{self.app}.log", content_disposition_type="attachment")
+
+        return r
+
     def _delete(self, me, user_id: int):
         if me and me["id"] == user_id:
             raise ValueError("You cannot delete your own account while signed in")

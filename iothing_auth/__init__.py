@@ -7,10 +7,11 @@ none), its settings there, and its app passwords.
 
   from iothing_auth import users, sessions, roles, settings, proxyauth   # the parts
   from iothing_auth.fastapi import Auth                                  # the FastAPI glue (middleware, access, routes)
+  from iothing_auth.updates import Updater                               # self-update, restart, the MCP token, the log
 
 Configuration (environment): IOSUITE_DB_HOST, _PORT, _NAME, _USER, _PASSWORD (the database; the older
 IOTHING_AUTH_DB_* and IOSUITE_SHARED_DB_* names still work), and
 IOTHING_COOKIE_DOMAIN (the domain the session cookie is shared on, e.g. iothing.net; a request from a host outside it,
 such as a LAN address, gets a cookie for that host only).
 """
-__version__ = "0.4.2"
+__version__ = "0.5.0"

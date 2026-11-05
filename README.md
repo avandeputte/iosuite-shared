@@ -57,6 +57,7 @@ app.middleware("http")(auth.middleware(open_paths=("/", "/index.html"), open_pre
 app.include_router(auth.router())         # /api/auth/login, accounts, logout, logout_all, me, settings, password, setup,
                                           #           sessions (list, DELETE one), app-passwords, proxy, suite
 app.include_router(auth.users_router())   # /api/users (admins of this app), /api/users/{id}/sessions (list, DELETE all or ?session=)
+app.include_router(auth.server_router(updater, log_file=LOG_FILE))   # /api/server, /api/log (below)
 
 @router.post("/api/photos/tag", dependencies=[auth.access.editor_write])
 def tag(request: Request):
@@ -69,6 +70,41 @@ the ionotes/iocontacts ones (which copied them) keep working.
 
 Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, changes)`, and for anything else
 `users.get_value / set_value(uid, app, key, value)` (JSON values).
+
+## Updates, restart and the server log
+
+Every app updates itself the same way, from `iothing_auth.updates`: the installed commit, a daily check of GitHub
+for a newer version, the app's own `update.sh`, a restart, the MCP admin token, and the tail of the server log.
+`Auth.server_router` serves it all at the same addresses in every app (admins only), so the Maintenance ›
+Updates and logs page is the same page everywhere.
+
+```python
+from iothing_auth.updates import Updater
+
+updater = Updater("iocalendar", version=APP_VERSION, root=ROOT)   # repo avandeputte/iocalendar, branch main, update.sh in ROOT
+updater.start_daily()                                             # checks once a day while the setting is on
+app.include_router(auth.server_router(updater, log_file=LOG_FILE,
+    info=lambda: {"mcpEnabled": mcp_enabled()},                   # extra fields of GET /api/server
+    apply=save_switches))                                         # the app's own switches in the POST body (raise ValueError to refuse)
+```
+
+| Route | What |
+|---|---|
+| `GET /api/server` | `{version, installed, docker, canRun, repo, branch, check, progress, lastUpdate, autoCheck, autoCheckLocked}` + `info()` |
+| `POST /api/server {action: check}` | asks GitHub; the answer is the check `{status: current / update / error, remoteVersion, ...}` |
+| `POST /api/server {action: update, ref?}` | starts `update.sh` (409 when it cannot run here: Docker, no .venv, not writable) |
+| `POST /api/server {action: token / regenerate_token}` | the MCP admin token |
+| `POST /api/server {action: restart}` | ends the process; systemd, launchd or Docker starts it again |
+| `POST /api/server {autoCheck: bool, ...}` | the daily-check switch; other keys go to `apply(body)` |
+| `GET /api/log?lines&level&contains&requests` | the tail of `log_file` (`level`: any, warning, error, auth) |
+| `GET /api/log/download` | the whole file |
+
+`update.sh` gets `<APP>_RESULT`, `<APP>_REPO`, `<APP>_BRANCH` and `<APP>_REF` in its environment (`IOCALENDAR_RESULT`…)
+and writes `ok: …` or `error: …` to the result file before the restart. `<APP>_REPO` and `<APP>_BRANCH` in the app's
+environment change what is followed; `UPDATE_CHECK=0` locks the daily check off; `MCP_ADMIN_TOKEN` fixes the token.
+`updater.available()` gives the banner what it needs after a check found a newer version; `updater.token_ok(given)`
+checks a token an MCP client sent. The daily-check switch and the token are settings of the app in the Shared ioSuite
+database; pass `settings=(get, set)` to keep them elsewhere.
 
 ## The suite's apps
 
@@ -112,7 +148,7 @@ and the old user tables are renamed `*_migrated`, not dropped.
 
 ## Tests
 
-`pytest` needs a MariaDB of its own: a Docker container it starts itself (`iothing-test-mariadb`, kept for the next
+`pytest tests/test_updates.py` runs without a database. The rest of `pytest` needs a MariaDB of its own: a Docker container it starts itself (`iothing-test-mariadb`, kept for the next
 run), or the server named by `IOTHING_TEST_DB=host:port:user:password` (a user that may create and drop databases).
 It uses a database `iothing_auth_test` there, dropped and made again per test, and never a live Shared ioSuite database;
 without a test server it is skipped. The apps' suites use the same helper (`iothing_auth.testing`).

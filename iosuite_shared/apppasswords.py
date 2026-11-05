@@ -15,18 +15,18 @@ _cache: dict = {}  # a successful check, for a minute: scrypt is slow on purpose
 def create(user_id: int, app: str, label: str) -> str:
     prefix = secrets.token_hex(4)
     pw = f"{app}-{prefix}-{secrets.token_urlsafe(18)}"
-    db.ex("INSERT INTO app_passwords (user_id, app, label, prefix, hash, created) VALUES (%s, %s, %s, %s, %s, %s)",
+    db.ex("INSERT INTO ios_app_passwords (user_id, app, label, prefix, hash, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
           (user_id, app, (label or "Device")[:128], prefix, hash_password(pw), int(time.time())))
     return pw
 
 
 def list_for(user_id: int, app: str) -> list:
-    return [{"id": r["id"], "label": r["label"], "created": r["created"], "lastUsed": r["last_used"]}
-            for r in db.q("SELECT * FROM app_passwords WHERE user_id = %s AND app = %s ORDER BY created", (user_id, app))]
+    return [{"id": r["id"], "label": r["label"], "created": r["created_at"], "lastUsed": r["last_used_at"]}
+            for r in db.q("SELECT * FROM ios_app_passwords WHERE user_id = %s AND app = %s ORDER BY created_at", (user_id, app))]
 
 
 def delete(user_id: int, pid: int):
-    db.ex("DELETE FROM app_passwords WHERE id = %s AND user_id = %s", (pid, user_id))
+    db.ex("DELETE FROM ios_app_passwords WHERE id = %s AND user_id = %s", (pid, user_id))
     _cache.clear()
 
 
@@ -46,11 +46,11 @@ def authenticate(name: str | None, password: str, app: str):
     user = None
     m = re.match(r"^([a-z0-9]+)-([0-9a-f]{8})-", password)  # the word is a hint only (ioc- from before the suite): the row says which app
     if m:
-        for r in db.q("SELECT * FROM app_passwords WHERE prefix = %s AND app = %s", (m.group(2), app)):
+        for r in db.q("SELECT * FROM ios_app_passwords WHERE prefix = %s AND app = %s", (m.group(2), app)):
             if check_password(password, r["hash"]):
                 u = users.get(r["user_id"], app)
                 if u and (not name or name.strip().lower() in (u["name"].lower(), u["email"].lower())):
-                    db.ex("UPDATE app_passwords SET last_used = %s WHERE id = %s", (int(time.time()), r["id"]))
+                    db.ex("UPDATE ios_app_passwords SET last_used_at = %s WHERE id = %s", (int(time.time()), r["id"]))
                     user = u
                     break
     if not user and name:

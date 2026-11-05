@@ -57,23 +57,23 @@ def create(user_id: int, app: str, via: str, info: dict = None) -> str:
     token = secrets.token_urlsafe(32)
     now = int(time.time())
     i = info or {}
-    db.ex("INSERT INTO sessions (token_hash, user_id, app, via, created, expires, renewed, ip, cloudflare, client, user_agent, last_seen, last_ip) "
+    db.ex("INSERT INTO ios_sessions (token_hash, user_id, app, via, created_at, expires_at, renewed_at, ip, cloudflare, client, user_agent, last_seen_at, last_ip) "
           "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
           (_hash(token), user_id, app, via[:16], now, now + SESSION_DAYS * 86400, now, i.get("ip"), 1 if i.get("cloudflare") else 0,
            (i.get("client") or "")[:32], i.get("user_agent"), now, i.get("ip")))
     if now % 50 == 0:  # now and then: expired sessions go
-        db.ex("DELETE FROM sessions WHERE expires < %s", (now,))
+        db.ex("DELETE FROM ios_sessions WHERE expires_at < %s", (now,))
     return token
 
 
 def end(token: str):
     if token:
-        db.ex("DELETE FROM sessions WHERE token_hash = %s", (_hash(token),))
+        db.ex("DELETE FROM ios_sessions WHERE token_hash = %s", (_hash(token),))
     invalidate()
 
 
 def end_all(user_id: int):
-    db.ex("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+    db.ex("DELETE FROM ios_sessions WHERE user_id = %s", (user_id,))
     invalidate()
 
 
@@ -93,16 +93,16 @@ def lookup(token: str, app: str, info: dict = None) -> tuple:
     hit = _cache.get((token, app))
     if hit and time.time() - hit[0] < CACHE_S:
         return hit[1], False
-    r = db.one("SELECT user_id, expires, renewed, last_seen FROM sessions WHERE token_hash = %s", (_hash(token),))
+    r = db.one("SELECT user_id, expires_at, renewed_at, last_seen_at FROM ios_sessions WHERE token_hash = %s", (_hash(token),))
     user, renewed = None, False
     now = int(time.time())
-    if r and r["expires"] > now:
+    if r and r["expires_at"] > now:
         user = users.get(r["user_id"], app)
-        if user and now - r["renewed"] > 86400:
-            db.ex("UPDATE sessions SET expires = %s, renewed = %s WHERE token_hash = %s", (now + SESSION_DAYS * 86400, now, _hash(token)))
+        if user and now - r["renewed_at"] > 86400:
+            db.ex("UPDATE ios_sessions SET expires_at = %s, renewed_at = %s WHERE token_hash = %s", (now + SESSION_DAYS * 86400, now, _hash(token)))
             renewed = True
-        if user and now - (r["last_seen"] or 0) > SEEN_EVERY:
-            db.ex("UPDATE sessions SET last_seen = %s, last_ip = %s WHERE token_hash = %s", (now, (info or {}).get("ip"), _hash(token)))
+        if user and now - (r["last_seen_at"] or 0) > SEEN_EVERY:
+            db.ex("UPDATE ios_sessions SET last_seen_at = %s, last_ip = %s WHERE token_hash = %s", (now, (info or {}).get("ip"), _hash(token)))
     if len(_cache) > 500:
         _cache.clear()
     _cache[(token, app)] = (time.time(), user)
@@ -114,14 +114,14 @@ def list_sessions(user_id: int, current_token: str = None) -> list:
     created / lastSeen / expires (epoch seconds), id (to end one) and current (the one asking)."""
     cur = _hash(current_token) if current_token else None
     return [{"id": r["token_hash"][:16], "app": r["app"], "via": r["via"], "client": r["client"] or "other", "ip": r["ip"], "lastIp": r["last_ip"],
-             "cloudflare": bool(r["cloudflare"]), "userAgent": r["user_agent"], "created": r["created"], "lastSeen": r["last_seen"] or r["renewed"],
-             "expires": r["expires"], "current": r["token_hash"] == cur}
-            for r in db.q("SELECT * FROM sessions WHERE user_id = %s ORDER BY coalesce(last_seen, renewed) DESC", (user_id,))]
+             "cloudflare": bool(r["cloudflare"]), "userAgent": r["user_agent"], "created": r["created_at"], "lastSeen": r["last_seen_at"] or r["renewed_at"],
+             "expires": r["expires_at"], "current": r["token_hash"] == cur}
+            for r in db.q("SELECT * FROM ios_sessions WHERE user_id = %s ORDER BY coalesce(last_seen_at, renewed_at) DESC", (user_id,))]
 
 
 def end_one(user_id: int, session_id: str):
     """End one of the account's sessions by the id list_sessions gives."""
-    db.ex("DELETE FROM sessions WHERE user_id = %s AND token_hash LIKE %s", (user_id, session_id[:16] + "%"))
+    db.ex("DELETE FROM ios_sessions WHERE user_id = %s AND token_hash LIKE %s", (user_id, session_id[:16] + "%"))
     invalidate()
 
 

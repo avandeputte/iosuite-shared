@@ -88,10 +88,10 @@ def test_legacy_hash_is_upgraded():
     salt = os.urandom(16)
     h = hashlib.scrypt(b"oldpass123", salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
     old = f"scrypt${base64.b64encode(salt).decode()}${base64.b64encode(h).decode()}"
-    db.ex("INSERT INTO users (name, hash, created) VALUES ('old', %s, 1)", (old,))
+    db.ex("INSERT INTO ios_users (name, hash, created_at) VALUES ('old', %s, 1)", (old,))
     assert needs_rehash(old)
     u = users.authenticate("old", "oldpass123")
-    assert u and not needs_rehash(db.one("SELECT hash FROM users WHERE id = %s", (u["id"],))["hash"])
+    assert u and not needs_rehash(db.one("SELECT hash FROM ios_users WHERE id = %s", (u["id"],))["hash"])
 
 
 def test_shared_db_names(monkeypatch):

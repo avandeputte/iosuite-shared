@@ -211,10 +211,10 @@ def apply(sources: dict, p: dict, keep_old: bool = False) -> dict:
     for m in p["accounts"]:
         if m["existing"]:
             uid = m["existing"]
-            if m["hash"] and not db.one("SELECT hash FROM users WHERE id = %s", (uid,))["hash"]:
-                db.ex("UPDATE users SET hash = %s WHERE id = %s", (m["hash"], uid))
+            if m["hash"] and not db.one("SELECT hash FROM ios_users WHERE id = %s", (uid,))["hash"]:
+                db.ex("UPDATE ios_users SET hash = %s WHERE id = %s", (m["hash"], uid))
         else:
-            uid = db.ex("INSERT INTO users (name, display_name, email, hash, suite_admin, listed, created, last_login) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            uid = db.ex("INSERT INTO ios_users (name, display_name, email, hash, suite_admin, listed, created_at, last_login_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                         (m["name"], m["display_name"] or None, m["email"] or None, m["hash"], 1 if m["suite_admin"] else 0, 1 if m["listed"] else 0,
                          m["created"] or now, m["last_login"]))
         for app, role in m["roles"].items():
@@ -226,7 +226,7 @@ def apply(sources: dict, p: dict, keep_old: bool = False) -> dict:
                 users.set_value(uid, app, k, v)
         for app, pws in m["app_passwords"].items():
             for pw in pws:
-                db.ex("INSERT INTO app_passwords (user_id, app, label, prefix, hash, created, last_used) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                db.ex("INSERT INTO ios_app_passwords (user_id, app, label, prefix, hash, created_at, last_used_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                       (uid, app, pw["label"], pw["prefix"], pw["hash"], _ts(pw["created"]) or now, _ts(pw["last_used"])))
         for app, old in m["sources"].items():
             idmaps[app][old] = uid
@@ -240,7 +240,7 @@ def apply(sources: dict, p: dict, keep_old: bool = False) -> dict:
         if not keep_old:
             src.retire()
         src.commit()
-        db.ex("INSERT INTO meta (k, v) VALUES (%s, %s) ON DUPLICATE KEY UPDATE v = VALUES(v)", (f"migrated:{app}", json.dumps({"at": now, "ids": idmaps[app]})))
+        db.ex("INSERT INTO ios_settings (app, name, value) VALUES ('_migrate', %s, %s) ON DUPLICATE KEY UPDATE value = VALUES(value)", (f"migrated:{app}", json.dumps({"at": now, "ids": idmaps[app]})))
     users.invalidate()
     return idmaps
 

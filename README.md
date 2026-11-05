@@ -129,7 +129,7 @@ database; pass `settings=(get, set)` to keep them elsewhere.
 
 ## The suite's apps
 
-Each app installs on its own, so the Shared ioSuite database also keeps the list of the suite's apps (table `suite_apps`), which
+Each app installs on its own, so the Shared ioSuite database also keeps the list of the suite's apps (table `ios_apps`), which
 every app writes itself: no address to type into the start page or into another app.
 
 ```python
@@ -150,6 +150,33 @@ suite.url_of("iopix")   # "https://photo.iothing.net" or None
 
 Over HTTP: `GET /api/auth/suite` (signed in) lists them; `DELETE /api/auth/suite/{app}` (suite admins) forgets an
 uninstalled one (it comes back if it starts again).
+
+## Database naming convention
+
+Every database in the suite follows the same rules, so the apps read alike and can all share one database:
+
+| What | Rule |
+|---|---|
+| Tables | `<prefix>_<plural noun>`, snake_case. Prefixes: `ios_` (this library), `prt_` (ioSuite start page), `nts_` (ioNotes), `pix_` (ioPix), `cal_` (ioCalendar), `con_` (ioContacts), `hlt_` (ioHealth) |
+| Child tables | `<prefix>_<parent singular>_<children>`: `con_contact_emails`, `pix_album_photos` |
+| Keys | `id` (a natural key the devices sync by keeps its name: `uuid`); references `<table singular>_id` |
+| Accounts | `user_id` (the row belongs to an account), `owner_id` (NULL: shared with everyone), `created_by` / `decided_by` (who did it) |
+| Times | `<event>_at`: `created_at`, `updated_at`, `last_seen_at`; dates without a time `date` / `<event>_date` |
+| Booleans | a bare adjective or `has_<thing>` (`deleted`, `shared`, `has_image`), TINYINT NOT NULL DEFAULT 0 |
+| Order | `position` |
+| Key/value tables | columns `name`, `value` (never `key`, a reserved word) |
+| Per app | `<prefix>_settings (name, value, updated_at)` and `<prefix>_schema_version (version, applied_at)` |
+| Indexes | `idx_<table>_<what>`, unique `uq_<table>_<what>` |
+| Tables | InnoDB, utf8mb4, utf8mb4_unicode_ci |
+
+Names a standard already gives are kept where a column holds that standard's field: iCalendar (`dtstart`, `rrule`),
+vCard (`fn`), HealthKit (`start_date`), digiKam (ioPix's copy of the library).
+
+`iosuite_shared.schema` has what the apps need for it: `rename(cur, tables, columns, indexes)` renames what still has
+an old name (RENAME TABLE / COLUMN / INDEX: instant, every row kept; nothing on a database already up to date), and
+`ensure_version_table` / `current_version` / `record_version` keep `<prefix>_schema_version`. 0.8.0 renamed this
+library's own tables (`users` -> `ios_users`, `suite_apps` -> `ios_apps`, `k`/`v` -> `name`/`value`, `created` ->
+`created_at`...) at the first start; every app on a server has to run a version built on 0.8.0 from then on.
 
 ## Command line
 

@@ -56,11 +56,11 @@ def register(app: str, name: str = None, url: str = None, version: str = None, d
     now = int(time.time())
     row = {"name": _clip(name or app, 64), "description": _clip(description, 255), "version": _clip(version, 32),
            "color": _clip(color, 16), "icon": _clip(icon, 512), "configured_url": clean_url(url)}
-    db.ex("""INSERT INTO suite_apps (app, name, description, version, color, icon, configured_url, registered, updated, last_seen)
+    db.ex("""INSERT INTO ios_apps (app, name, description, version, color, icon, configured_url, created_at, updated_at, last_seen_at)
              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
              ON DUPLICATE KEY UPDATE name = VALUES(name), description = VALUES(description), version = VALUES(version),
                color = VALUES(color), icon = VALUES(icon), configured_url = VALUES(configured_url),
-               updated = VALUES(updated), last_seen = VALUES(last_seen)""",
+               updated_at = VALUES(updated_at), last_seen_at = VALUES(last_seen_at)""",
           (app, row["name"], row["description"], row["version"], row["color"], row["icon"], row["configured_url"], now, now, now))
     return get(app)
 
@@ -103,7 +103,7 @@ def note_seen(app: str, request) -> None:
     with _lock:
         known = _seen.get(app)
         if known is None:
-            r = db.one("SELECT seen_url FROM suite_apps WHERE app = %s", (app,))
+            r = db.one("SELECT seen_url FROM ios_apps WHERE app = %s", (app,))
             stored = r["seen_url"] if r else None
             known = (stored, _rank(stored) if stored else -1, 0.0)
         better = rank >= 0 and origin != known[0] and rank >= known[1]
@@ -111,9 +111,9 @@ def note_seen(app: str, request) -> None:
             return
         _seen[app] = (origin if better else known[0], rank if better else known[1], now)
     if better:
-        n = db.ex("UPDATE suite_apps SET seen_url = %s, last_seen = %s WHERE app = %s", (origin, int(now), app))
+        n = db.ex("UPDATE ios_apps SET seen_url = %s, last_seen_at = %s WHERE app = %s", (origin, int(now), app))
     else:
-        n = db.ex("UPDATE suite_apps SET last_seen = %s WHERE app = %s", (int(now), app))
+        n = db.ex("UPDATE ios_apps SET last_seen_at = %s WHERE app = %s", (int(now), app))
     if not n:  # not registered (yet): try again on a later request
         with _lock:
             _seen.pop(app, None)
@@ -126,17 +126,17 @@ def _out(r: dict) -> dict:
         icon = url + "/" + icon.lstrip("/")
     return {"app": r["app"], "name": r["name"], "description": r["description"], "version": r["version"],
             "color": r["color"], "icon": icon, "url": url, "configuredUrl": r["configured_url"], "seenUrl": r["seen_url"],
-            "registered": r["registered"], "updated": r["updated"], "lastSeen": r["last_seen"]}
+            "registered": r["created_at"], "updated": r["updated_at"], "lastSeen": r["last_seen_at"]}
 
 
 def apps() -> list:
     """Every registered app: {app, name, description, version, color, icon (absolute), url, configuredUrl, seenUrl,
     registered, updated, lastSeen}, by name."""
-    return [_out(r) for r in db.q("SELECT * FROM suite_apps ORDER BY name, app")]
+    return [_out(r) for r in db.q("SELECT * FROM ios_apps ORDER BY name, app")]
 
 
 def get(app: str) -> dict | None:
-    r = db.one("SELECT * FROM suite_apps WHERE app = %s", (app,))
+    r = db.one("SELECT * FROM ios_apps WHERE app = %s", (app,))
     return _out(r) if r else None
 
 
@@ -149,7 +149,7 @@ def forget(app: str) -> bool:
     """Remove an app (uninstalled); it registers again when it starts."""
     with _lock:
         _seen.pop(app, None)
-    return db.ex("DELETE FROM suite_apps WHERE app = %s", (app,)) > 0
+    return db.ex("DELETE FROM ios_apps WHERE app = %s", (app,)) > 0
 
 
 def invalidate():

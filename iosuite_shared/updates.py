@@ -1,7 +1,7 @@
 """Updating an app itself, the same way in every ioThing app: which commit is installed, whether GitHub has a newer
 version, running the app's update.sh, restarting, the MCP admin token, and the tail of the server log.
 
-    from iothing_auth.updates import Updater
+    from iosuite_shared.updates import Updater
     updater = Updater("iocalendar", version=APP_VERSION, root=ROOT)        # repo avandeputte/iocalendar, branch main
     updater.start_daily()                                                   # the daily check, while the setting is on
     app.include_router(auth.server_router(updater, log_file=LOG_FILE))      # GET/POST /api/server, GET /api/log
@@ -25,7 +25,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from iothing_auth import db
+from iosuite_shared import db
 
 DAILY = 24 * 3600
 VERSION_RE = re.compile(r'^(?:APP_VERSION|__version__)\s*=\s*"([^"]+)"', re.M)
@@ -287,7 +287,7 @@ def tail(path, lines: int = 300, contains: str = "", level: str = "any", request
         c = contains.lower()
         out = [l for l in out if c in l.lower()]
     if level == "auth":
-        out = [l for l in out if " iothing_auth.auth: " in l]
+        out = [l for l in out if " iosuite_shared.auth: " in l]
     elif level == "warning":
         out = [l for l in out if " WARNING " in l or " ERROR " in l or " CRITICAL " in l or "Traceback" in l]
     elif level == "error":

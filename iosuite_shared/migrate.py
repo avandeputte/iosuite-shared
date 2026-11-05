@@ -1,6 +1,6 @@
 """Fold the apps' own user tables into the shared database.
 
-    iothing-auth migrate --iopix sqlite:///.../viewer.db --ionotes mysql://notes:pw@host/notes --iocontacts mysql://... [--apply]
+    iosuite-shared migrate --iopix sqlite:///.../viewer.db --ionotes mysql://notes:pw@host/notes --iocontacts mysql://... [--apply]
 
 Without --apply nothing is written: the report says which accounts would be made or merged and where the sources
 disagree. Accounts are matched across apps by email, then by name (case-insensitive). When two apps give the same
@@ -15,7 +15,7 @@ import sqlite3
 import time
 from urllib.parse import unquote, urlsplit
 
-from iothing_auth import db, users
+from iosuite_shared import db, users
 
 ORDER = ("iopix", "ionotes", "iocontacts")
 # the apps' tables with a user id column, remapped with --apply
@@ -205,7 +205,7 @@ def plan(sources: dict) -> dict:
 
 def apply(sources: dict, p: dict, keep_old: bool = False) -> dict:
     """Write the plan: {app: {old id: new id}}. keep_old: leave the apps' own user tables in place (the versions still
-    running keep working until they are updated; `iothing-auth retire` renames them afterwards)."""
+    running keep working until they are updated; `iosuite-shared retire` renames them afterwards)."""
     idmaps = {app: {} for app in sources}
     now = int(time.time())
     for m in p["accounts"]:
@@ -271,7 +271,7 @@ def run(a) -> int:
     idmaps = apply(sources, p, keep_old=getattr(a, "keep_old", False))
     print("applied; old id -> shared id:", json.dumps(idmaps))
     if getattr(a, "keep_old", False):
-        print("the apps' own user tables were left in place: run `iothing-auth retire` with the same sources once every app is updated")
+        print("the apps' own user tables were left in place: run `iosuite-shared retire` with the same sources once every app is updated")
     return 0
 
 

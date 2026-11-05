@@ -9,7 +9,7 @@ import hashlib
 import secrets
 import time
 
-from iothing_auth import config, db, users
+from iosuite_shared import config, db, users
 
 COOKIE = config.COOKIE
 VIA_COOKIE = "iothing_via"  # how the session began (password, oneclick, cloudflare, proxy): shown in the account dialog only

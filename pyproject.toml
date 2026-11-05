@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "iothing-auth"
-version = "0.5.0"
+name = "iosuite-shared"
+version = "0.6.0"
 description = "Shared accounts, sessions, roles and per-user settings for the ioThing apps (ioPix, ioNotes, ioContacts)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,7 +18,7 @@ fastapi = ["fastapi<1"]
 test = ["pytest<10", "httpx<1", "fastapi<1"]
 
 [project.scripts]
-iothing-auth = "iothing_auth.cli:main"
+iosuite-shared = "iosuite_shared.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["iothing_auth*"]
+include = ["iosuite_shared*"]

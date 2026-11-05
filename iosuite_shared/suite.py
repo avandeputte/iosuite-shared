@@ -17,7 +17,7 @@ import ipaddress
 import threading
 import time
 
-from iothing_auth import config, db
+from iosuite_shared import config, db
 
 FIELDS = ("name", "description", "version", "color", "icon")
 SEEN_EVERY_S = 3600  # last_seen is refreshed at most this often per app (the address itself is written when it changes)

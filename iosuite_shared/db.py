@@ -1,4 +1,4 @@
-"""The Shared ioSuite database (once "the auth database"): connections, the schema, and the suite-wide / per-app settings table.
+"""The Shared ioSuite database: connections, the schema, and the suite-wide / per-app settings table.
 
 Every call opens its own connection and closes it (PyMySQL connections are not shared between threads). Rows come
 back as dicts.
@@ -11,7 +11,7 @@ from contextlib import contextmanager
 import pymysql
 from pymysql.cursors import DictCursor
 
-from iothing_auth import config
+from iosuite_shared import config
 
 SCHEMA_VERSION = 3
 
@@ -93,7 +93,7 @@ SCHEMA = [
         v MEDIUMTEXT NOT NULL,
         PRIMARY KEY (app, k)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci""",
-    # the suite's apps, each written by the app itself when it starts (iothing_auth.suite): what it is called, its
+    # the suite's apps, each written by the app itself when it starts (iosuite_shared.suite): what it is called, its
     # version, and where it is (the address its configuration names, else the best one it was reached at), so the start
     # page and the others link to it without anybody typing an address
     """CREATE TABLE IF NOT EXISTS suite_apps (
@@ -191,7 +191,6 @@ def init():
     with _init_lock:
         if _ready:
             return
-        _legacy_fallback()
         p = params()
         try:
             con = connect(database=None)
@@ -213,28 +212,6 @@ def init():
         _ready = True
 
 
-def _legacy_fallback():
-    """Nothing names the database and the new defaults (iosuite/iosuite) are refused: an install from before 0.4 that
-    relied on the old ones (auth/auth). Use those when they work, and say so."""
-    if config.DB_EXPLICIT or any(k in _overrides for k in ("database", "user", "password")):
-        return
-    try:
-        connect().close()
-        return
-    except pymysql.MySQLError as first:
-        legacy = {"database": config.LEGACY_DEFAULTS["NAME"], "user": config.LEGACY_DEFAULTS["USER"], "password": config.LEGACY_DEFAULTS["PASSWORD"]}
-        p = {**params(), **legacy}
-        try:
-            pymysql.connect(host=p["host"], port=int(p["port"]), user=p["user"], password=p["password"], database=p["database"], connect_timeout=8).close()
-        except pymysql.MySQLError:
-            raise first
-    import logging
-    logging.getLogger("iothing_auth").warning(
-        "the Shared ioSuite database: using the old defaults (database and user 'auth'); set IOSUITE_DB_NAME, _USER "
-        "and _PASSWORD to say so and silence this")
-    _overrides.update(legacy)
-
-
 def ready() -> bool:
     return _ready
 
@@ -247,7 +224,7 @@ def available() -> bool:
     if time.time() < _retry_at:
         return False
     _retry_at = time.time() + 10
-    from iothing_auth import users
+    from iosuite_shared import users
     return users.init()
 
 

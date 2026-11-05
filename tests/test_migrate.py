@@ -2,8 +2,8 @@ import argparse
 import json
 import sqlite3
 
-from iothing_auth import migrate, users
-from iothing_auth.passwords import hash_password
+from iosuite_shared import migrate, users
+from iosuite_shared.passwords import hash_password
 
 
 def _iopix_db(path):
@@ -59,6 +59,6 @@ def test_migrate_dry_run_then_apply(tmp_path, capsys):
     assert con.execute("SELECT owner_id FROM viewer_albums WHERE id = 2").fetchone()[0] == bob["id"]
     assert con.execute("SELECT owner_id FROM viewer_albums WHERE id = 3").fetchone()[0] is None
     assert con.execute("SELECT count(*) FROM user_accounts_migrated").fetchone()[0] == 3
-    from iothing_auth import db as authdb
+    from iosuite_shared import db as authdb
     assert users.require_login("iopix") and not users.require_login("ionotes")  # require_login moved per app
     assert authdb.settings_of("") == {"auth_proxy": "cloudflare", "cf_access_team": "x.cloudflareaccess.com", "cf_access_aud": "aud1"}  # the proxy, suite-wide

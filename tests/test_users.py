@@ -1,6 +1,6 @@
 import pytest
 
-from iothing_auth import apppasswords, sessions, users
+from iosuite_shared import apppasswords, sessions, users
 
 
 def test_create_authenticate_roles():
@@ -60,7 +60,7 @@ def test_sessions():
 
 
 def test_cookie_domain(monkeypatch):
-    monkeypatch.setattr("iothing_auth.config.COOKIE_DOMAIN", "iothing.net")
+    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
     assert sessions.cookie_domain("photo.iothing.net") == "iothing.net"
     assert sessions.cookie_domain("notes.iothing.net:8610") == "iothing.net"
     assert sessions.cookie_domain("192.168.1.5:8600") is None
@@ -82,8 +82,8 @@ def test_app_passwords():
 
 
 def test_legacy_hash_is_upgraded():
-    from iothing_auth import db
-    from iothing_auth.passwords import needs_rehash
+    from iosuite_shared import db
+    from iosuite_shared.passwords import needs_rehash
     import base64, hashlib, os
     salt = os.urandom(16)
     h = hashlib.scrypt(b"oldpass123", salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
@@ -94,24 +94,18 @@ def test_legacy_hash_is_upgraded():
     assert u and not needs_rehash(db.one("SELECT hash FROM users WHERE id = %s", (u["id"],))["hash"])
 
 
-def test_shared_db_names_and_the_old_ones(monkeypatch):
+def test_shared_db_names(monkeypatch):
     import importlib
-    from iothing_auth import config
-    for p in ("IOSUITE_DB_", "IOSUITE_SHARED_DB_", "IOTHING_AUTH_DB_"):
-        for k in ("HOST", "PORT", "NAME", "USER", "PASSWORD"):
-            monkeypatch.delenv(p + k, raising=False)
+    from iosuite_shared import config
+    for k in ("HOST", "PORT", "NAME", "USER", "PASSWORD"):
+        monkeypatch.delenv("IOSUITE_DB_" + k, raising=False)
     try:
         importlib.reload(config)
-        assert (config.DB_NAME, config.DB_USER, config.DB_PASSWORD) == ("iosuite", "iosuite", "iosuite") and not config.DB_EXPLICIT
-        monkeypatch.setenv("IOTHING_AUTH_DB_NAME", "auth")
+        assert (config.DB_NAME, config.DB_USER, config.DB_PASSWORD) == ("iosuite", "iosuite", "iosuite")
+        monkeypatch.setenv("IOSUITE_DB_NAME", "suite")
+        monkeypatch.setenv("IOTHING_AUTH_DB_USER", "auth")  # a name from before 0.6: not read
         importlib.reload(config)
-        assert config.DB_NAME == "auth" and config.DB_EXPLICIT
-        monkeypatch.setenv("IOSUITE_SHARED_DB_NAME", "shared")
-        importlib.reload(config)
-        assert config.DB_NAME == "shared"
-        monkeypatch.setenv("IOSUITE_DB_NAME", "iosuite")
-        importlib.reload(config)
-        assert config.DB_NAME == "iosuite"
+        assert (config.DB_NAME, config.DB_USER) == ("suite", "iosuite")
     finally:
         monkeypatch.undo()
         importlib.reload(config)

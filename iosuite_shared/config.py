@@ -7,27 +7,14 @@ def env(name: str, default: str = "") -> str:
 
 
 # The Shared ioSuite database: accounts, sessions, roles, app passwords, and the suite-wide settings and list of apps.
-# IOSUITE_DB_HOST, _PORT, _NAME, _USER, _PASSWORD. The older names still work, so an existing install keeps its database:
-# IOTHING_AUTH_DB_* (before 0.4, when it was "the auth database") and IOSUITE_SHARED_DB_* (0.4.0 only).
-# The first one set wins, in this order. Default: database and user `iosuite`.
+# IOSUITE_DB_HOST, _PORT, _NAME, _USER, _PASSWORD. Default: database and user `iosuite`.
 PREFIX = "IOSUITE_DB_"
-OLD_PREFIXES = ("IOSUITE_SHARED_DB_", "IOTHING_AUTH_DB_")
-PREFIXES = (PREFIX, *OLD_PREFIXES)
 DEFAULTS = {"HOST": "127.0.0.1", "PORT": "3306", "NAME": "iosuite", "USER": "iosuite", "PASSWORD": "iosuite"}
-LEGACY_DEFAULTS = {"NAME": "auth", "USER": "auth", "PASSWORD": "auth"}  # what an install that set nothing used before 0.4
 
 
 def shared_db(key: str) -> str:
-    for p in PREFIXES:
-        v = os.environ.get(p + key)
-        if v is not None:
-            return v
-    return DEFAULTS[key]
+    return os.environ.get(PREFIX + key, DEFAULTS[key])
 
-
-# whether anything names the database's name or account: if nothing does, an install from before 0.4 may be on the old
-# defaults (auth/auth), which db.init() falls back to when the new ones are refused
-DB_EXPLICIT = any(os.environ.get(p + k) is not None for p in PREFIXES for k in ("NAME", "USER", "PASSWORD"))
 
 DB_HOST = shared_db("HOST")
 DB_PORT = int(shared_db("PORT"))

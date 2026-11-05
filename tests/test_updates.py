@@ -8,8 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from iothing_auth import updates
-from iothing_auth.fastapi import Auth
+from iosuite_shared import updates
+from iosuite_shared.fastapi import Auth
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ def test_log_tail(tmp_path):
     log = tmp_path / "app.log"
     log.write_text("\n".join([
         "2026-11-05 10:00:00 INFO uvicorn.access: GET / 200",
-        "2026-11-05 10:00:01 INFO iothing_auth.auth: signed in: alex",
+        "2026-11-05 10:00:01 INFO iosuite_shared.auth: signed in: alex",
         "2026-11-05 10:00:02 WARNING app: slow",
         "2026-11-05 10:00:03 ERROR app: boom",
         "Traceback (most recent call last):",
@@ -165,7 +165,7 @@ def test_log_tail(tmp_path):
     errs = updates.tail(log, level="error")["lines"]
     assert len(errs) == 2 and errs[0].endswith("boom") and errs[1].startswith("Traceback")
     assert updates.tail(log, level="warning")["returned"] == 3
-    assert updates.tail(log, level="auth")["lines"] == ["2026-11-05 10:00:01 INFO iothing_auth.auth: signed in: alex"]
+    assert updates.tail(log, level="auth")["lines"] == ["2026-11-05 10:00:01 INFO iosuite_shared.auth: signed in: alex"]
     assert updates.tail(log, contains="FINE")["returned"] == 1
     assert updates.tail(log, lines=2)["lines"] == ["Traceback (most recent call last):", "2026-11-05 10:00:04 INFO app: fine"]
 
@@ -179,7 +179,7 @@ def admin_app(auth: Auth, monkeypatch):
     async def as_admin(request, call_next):
         request.state.user = admin
         return await call_next(request)
-    monkeypatch.setattr("iothing_auth.users.is_admin", lambda u: bool(u and u.get("role") == "admin"))
+    monkeypatch.setattr("iosuite_shared.users.is_admin", lambda u: bool(u and u.get("role") == "admin"))
     return app
 
 
@@ -256,7 +256,7 @@ def test_server_router_is_for_admins_only(tmp_path, monkeypatch):
     async def nobody(request, call_next):
         request.state.user = {"id": 2, "name": "bob", "role": "viewer"}
         return await call_next(request)
-    monkeypatch.setattr("iothing_auth.users.is_admin", lambda user: False)
+    monkeypatch.setattr("iosuite_shared.users.is_admin", lambda user: False)
     app.include_router(auth.server_router(u, log_file=tmp_path / "x.log"))
     c = TestClient(app)
     assert c.get("/api/server").status_code == 403

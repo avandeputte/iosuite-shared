@@ -18,8 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from iothing_auth import apppasswords, db, sessions, suite, users
-from iothing_auth.proxyauth import Proxy, authlog, peer_of, remember_peer, seen
+from iosuite_shared import apppasswords, db, sessions, suite, users
+from iosuite_shared.proxyauth import Proxy, authlog, peer_of, remember_peer, seen
 
 ACCESS_ROLES = ("public", "signed_in", "editor", "admin", "suite_admin")
 
@@ -85,7 +85,7 @@ class Auth:
                  version: str = None, public_url: str = None, description: str = None, color: str = None, icon: str = None,
                  register: bool = True):
         """version, public_url (the app's PUBLIC_URL; empty: the address it is reached at), description, color and icon
-        go into the suite's list of apps (iothing_auth.suite) when the app first reaches the Shared ioSuite database; register=False
+        go into the suite's list of apps (iosuite_shared.suite) when the app first reaches the Shared ioSuite database; register=False
         keeps the app out of it."""
         self.app = app
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
@@ -95,7 +95,7 @@ class Auth:
         self.proxy = Proxy(app)
         self.access = Access(read_only, read_only_message or f"{self.label} is in read-only mode; nothing can be changed.")
         self.realm = basic_realm or self.label
-        self.log = logging.getLogger(f"iothing_auth.{app}")
+        self.log = logging.getLogger(f"iosuite_shared.{app}")
         self.decorate = lambda user: user  # the app may add fields to the user dict it serves (iopix: the person tag)
         self.on_update = None  # on_update(user_id, body) after an admin changed an account: the app's own fields (iopix: the person tag)
         self.deny_exempt = ()  # path prefixes a denied proxy identity may still reach (iopix: /mcp, which signs in with its own token)
@@ -539,7 +539,7 @@ class Auth:
         `info()` returns extra fields for GET /api/server (the app's: mcpEnabled, database...); `apply(body)` saves the
         app's own switches sent in the POST body and raises ValueError when one cannot be set."""
         from fastapi.responses import FileResponse
-        from iothing_auth import updates as upd
+        from iosuite_shared import updates as upd
         access, label = self.access, self.label
         r = APIRouter()
 
@@ -626,5 +626,5 @@ class Auth:
         if self.on_update:
             self.on_update(user_id, body)
         apppasswords.forget()
-        from iothing_auth import proxyauth
+        from iosuite_shared import proxyauth
         proxyauth.forget_identities()

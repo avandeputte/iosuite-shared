@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from iothing_auth import suite, users
-from iothing_auth.fastapi import Auth
+from iosuite_shared import suite, users
+from iosuite_shared.fastapi import Auth
 
 
 def make_app(name, **kw):
@@ -36,7 +36,7 @@ def test_bad_url_is_refused():
 
 
 def test_rank_prefers_the_shared_domain_over_https(monkeypatch):
-    monkeypatch.setattr("iothing_auth.config.COOKIE_DOMAIN", "iothing.net")
+    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
     assert suite._rank("http://localhost:8600") == -1
     assert suite._rank("http://127.0.0.1:8600") == -1
     assert suite._rank("http://testserver") == -1
@@ -48,7 +48,7 @@ def test_rank_prefers_the_shared_domain_over_https(monkeypatch):
 
 
 def test_middleware_registers_and_notes_the_best_address(monkeypatch):
-    monkeypatch.setattr("iothing_auth.config.COOKIE_DOMAIN", "iothing.net")
+    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
     suite.invalidate()
     app, _ = make_app("iocalendar", label="ioCalendar", version="0.4.0", color="#963522", icon="static/icons/icon.svg")
     TestClient(app, base_url="http://testserver").get("/api/x")

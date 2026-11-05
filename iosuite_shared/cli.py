@@ -1,11 +1,11 @@
-"""iothing-auth: init | list | create | role | password | migrate (see migrate.py)."""
+"""iosuite-shared: init | list | create | role | password | migrate (see migrate.py)."""
 import argparse
 import getpass
 import sys
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="iothing-auth", description="The shared ioThing user database")
+    p = argparse.ArgumentParser(prog="iosuite-shared", description="The shared ioThing user database")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init", help="create the database tables")
     sub.add_parser("list", help="every account and its roles")
@@ -27,12 +27,12 @@ def main(argv=None):
     rt.add_argument("--iopix"); rt.add_argument("--ionotes"); rt.add_argument("--iocontacts")
     a = p.parse_args(argv)
 
-    from iothing_auth import users
+    from iosuite_shared import users
     if a.cmd == "migrate":
-        from iothing_auth import migrate
+        from iosuite_shared import migrate
         return migrate.run(a)
     if a.cmd == "retire":
-        from iothing_auth import migrate
+        from iosuite_shared import migrate
         return migrate.retire(a)
     users.init()
     if a.cmd == "init":

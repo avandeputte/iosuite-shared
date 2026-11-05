@@ -11,8 +11,8 @@ import re
 import threading
 import time
 
-from iothing_auth import db
-from iothing_auth.passwords import burn, check_password, hash_password, needs_rehash
+from iosuite_shared import db
+from iosuite_shared.passwords import burn, check_password, hash_password, needs_rehash
 
 ROLES = ("none", "viewer", "editor", "admin")
 APP_ROLES = ("viewer", "editor", "admin")  # what an admin picks for an account in an app ("none" takes the app away)
@@ -25,7 +25,7 @@ CACHE_S = 3.0
 
 def invalidate():
     _cache.update(any=None, any_at=0.0)
-    from iothing_auth import sessions
+    from iosuite_shared import sessions
     sessions.invalidate()
 
 
@@ -33,13 +33,13 @@ def init() -> bool:
     """The tables, and the admin named by ADMIN_USER / ADMIN_PASSWORD on a first start with no accounts yet. When the
     Shared ioSuite database cannot be reached the app still starts: False, db.error says why, and every request that needs an
     account is answered 503 until the database is back (the middleware retries)."""
-    from iothing_auth import config
+    from iosuite_shared import config
     import logging
     try:
         db.init()
     except Exception as e:
         db.error = str(e)[:300]
-        logging.getLogger("iothing_auth").error("the Shared ioSuite database (%s:%s/%s) cannot be reached: %s", db.params()["host"], db.params()["port"], db.params()["database"], e)
+        logging.getLogger("iosuite_shared").error("the Shared ioSuite database (%s:%s/%s) cannot be reached: %s", db.params()["host"], db.params()["port"], db.params()["database"], e)
         return False
     db.error = None
     if config.ADMIN_USER and config.ADMIN_PASSWORD and not any_users():
@@ -177,7 +177,7 @@ def update(user_id: int, name=None, password=None, email=None, display_name=None
     if role is not None:
         set_role(user_id, app, role)
     if "hash" in sets or "suite_admin" in sets:
-        from iothing_auth import sessions
+        from iosuite_shared import sessions
         sessions.end_all(user_id)
     invalidate()
     return get(user_id, app)

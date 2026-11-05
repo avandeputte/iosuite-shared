@@ -6,8 +6,8 @@ import re
 import secrets
 import time
 
-from iothing_auth import db, users
-from iothing_auth.passwords import check_password, hash_password
+from iosuite_shared import db, users
+from iosuite_shared.passwords import check_password, hash_password
 
 _cache: dict = {}  # a successful check, for a minute: scrypt is slow on purpose and DAV clients send Basic on every request
 

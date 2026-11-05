@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from iothing_auth import users
-from iothing_auth.fastapi import Auth
+from iosuite_shared import users
+from iosuite_shared.fastapi import Auth
 
 
 def make_app(name="iopix", read_only=False):
@@ -64,7 +64,7 @@ def test_session_shared_between_apps_with_their_own_roles():
     assert me["user"]["name"] == "bob" and me["user"]["role"] == "viewer" and me["signedIn"]
     assert n.post("/api/edit").status_code == 403
     users.set_role(users.find("bob")["id"], "ionotes", "none")
-    from iothing_auth import sessions
+    from iosuite_shared import sessions
     sessions.invalidate()
     assert n.get("/api/private").status_code == 401  # no access there
     assert n.post("/api/auth/login", json={"name": "bob", "password": "secret123"}).status_code == 403
@@ -108,7 +108,7 @@ def test_users_admin_api_and_read_only():
 def test_app_password_basic_and_bearer():
     app, _ = make_app("iocontacts")
     u = users.create("alex", "secret123", "editor", "iocontacts")
-    from iothing_auth import apppasswords
+    from iosuite_shared import apppasswords
     pw = apppasswords.create(u["id"], "iocontacts", "Mac")
     c = TestClient(app, base_url="http://contacts.iothing.net")
     assert c.get("/api/private").status_code == 401
@@ -120,7 +120,7 @@ def test_app_password_basic_and_bearer():
 
 
 def test_unreachable_auth_database_answers_503_not_open(monkeypatch):
-    from iothing_auth import db
+    from iosuite_shared import db
     app, _ = make_app()
     c = TestClient(app, base_url="http://photo.iothing.net")
     db._ready = False
@@ -133,7 +133,7 @@ def test_unreachable_auth_database_answers_503_not_open(monkeypatch):
 
 
 def test_sessions_record_where_they_began_and_were_seen():
-    from iothing_auth import sessions
+    from iosuite_shared import sessions
     app, _ = make_app()
     users.create("alex", "secret123", "admin", "iopix", suite_admin=True)
     web = TestClient(app, base_url="http://photo.iothing.net", headers={"user-agent": "Mozilla/5.0 (Macintosh) Safari/605"})

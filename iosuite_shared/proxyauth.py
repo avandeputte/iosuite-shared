@@ -18,10 +18,10 @@ import logging
 import threading
 import time
 
-from iothing_auth import config, db, users
+from iosuite_shared import config, db, users
 
-log = logging.getLogger("iothing_auth.proxyauth")
-authlog = logging.getLogger("iothing_auth.auth")  # sign-ins, failed attempts and sign-outs, for the apps' server logs
+log = logging.getLogger("iosuite_shared.proxyauth")
+authlog = logging.getLogger("iosuite_shared.auth")  # sign-ins, failed attempts and sign-outs, for the apps' server logs
 
 PRESETS = ("cloudflare", "haproxy", "nginx", "caddy", "traefik", "header")
 CF_HEADER = "Cf-Access-Authenticated-User-Email"

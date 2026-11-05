@@ -25,13 +25,37 @@ LAN and is a viewer at most, everywhere.
 pip install git+https://github.com/avandeputte/iosuite-shared.git
 ```
 
-Environment (the apps' `.env` files):
+## Settings: config.env
+
+Every app keeps its settings in `config.env` in its own folder (KEY=value lines, `#` comments; variables already in
+the environment, such as a container's, win). The app reads it first, before anything else looks at a setting:
+
+```python
+from iosuite_shared import config as shared_config
+shared_config.load_file(APP_DIR)            # APP_DIR/config.env into os.environ
+```
+
+The names every app understands the same way:
 
 ```
-IOSUITE_DB_HOST=192.168.1.89   IOSUITE_DB_PORT=3306
-IOSUITE_DB_NAME=iosuite         IOSUITE_DB_USER=iosuite   IOSUITE_DB_PASSWORD=…
-IOTHING_COOKIE_DOMAIN=iothing.net   # the session cookie is shared by every host under it; a LAN address gets its own
+DB_HOST=db.example.lan  DB_PORT=3306  DB_NAME=…  DB_USER=…  DB_PASSWORD=…   # the app's own database
+IOSUITE_DB_HOST=…  IOSUITE_DB_PORT=…            # the Shared ioSuite database; default: DB_HOST and DB_PORT
+IOSUITE_DB_NAME=iosuite  IOSUITE_DB_USER=iosuite  IOSUITE_DB_PASSWORD=…
+PUBLIC_URL=https://notes.example.com             # the address people and the other apps reach the app at
+COOKIE_DOMAIN=example.com                        # the session cookie is shared by every host under it; a LAN address gets its own
+HOST=0.0.0.0  PORT=8610                          # where the server listens (each app has its own port, below)
+ADMIN_USER=…  ADMIN_PASSWORD=…                   # the first admin, on an empty Shared ioSuite database
+TZ=Europe/Brussels  LOG_FILE=…  UPDATE_CHECK=0  MCP=1  MCP_ADMIN_TOKEN=…
 ```
+
+`COOKIE_NAME` (default `iothing_session`) and `SESSION_DAYS` (30) rarely need changing. On/off switches take
+1/0, true/false, yes/no or on/off (`config.env_flag`).
+
+Default ports, different for every app so that all of them can run on one host (`suite.PORTS`):
+
+| ioPix | ioNotes | ioCalendar | ioSuite | ioContacts | ioHealth |
+|-------|---------|------------|---------|------------|----------|
+| 8600  | 8610    | 8620       | 8630    | 8640 (LDAP 3890) | 47800 |
 
 The database is the **Shared ioSuite database**: accounts, sessions, roles and app passwords, and the suite-wide
 settings and list of apps. Its default name and account are `iosuite`; `IOSUITE_DB_*` are the only variables read.
@@ -78,7 +102,7 @@ Updates and logs page is the same page everywhere.
 ```python
 from iosuite_shared.updates import Updater
 
-updater = Updater("iocalendar", version=APP_VERSION, root=ROOT)   # repo avandeputte/iocalendar, branch main, update.sh in ROOT
+updater = Updater("iocalendar", version=__version__, root=ROOT)   # repo avandeputte/iocalendar, branch main, update.sh in ROOT
 updater.start_daily()                                             # checks once a day while the setting is on
 app.include_router(auth.server_router(updater, log_file=LOG_FILE,
     info=lambda: {"mcpEnabled": mcp_enabled()},                   # extra fields of GET /api/server
@@ -109,12 +133,12 @@ Each app installs on its own, so the Shared ioSuite database also keeps the list
 every app writes itself: no address to type into the start page or into another app.
 
 ```python
-auth = Auth("iocalendar", app_label="ioCalendar", version=APP_VERSION, public_url=config.PUBLIC_URL,
+auth = Auth("iocalendar", app_label="ioCalendar", version=__version__, public_url=config.PUBLIC_URL,
             description="Calendar", color="#963522", icon="/static/icons/icon.svg")
 ```
 
 At its first request (`auth.resolve()`, which `auth.middleware()` calls, and so does an app's own middleware) the app registers (name, version, description, colour, icon, and its `PUBLIC_URL` when it has
-one), and the middleware keeps the best address it is reached at: a host under `IOTHING_COOKIE_DOMAIN` over HTTPS beats
+one), and the middleware keeps the best address it is reached at: a host under `COOKIE_DOMAIN` over HTTPS beats
 a LAN name, which beats an IP address; loopback and test hosts are never kept. `url` is the configured address, else
 that one. `register=False` keeps an app out.
 
@@ -131,6 +155,9 @@ uninstalled one (it comes back if it starts again).
 
 ```
 iosuite-shared init                          # the tables
+iosuite-shared check                         # reach the database, count the accounts
+ADMIN_PASSWORD=… iosuite-shared admin alex --app iocalendar   # an admin of the app (made when missing; the first account is a suite admin)
+iosuite-shared --config /opt/iocalendar/app check             # the app's config.env first (what setup.sh does)
 iosuite-shared list
 iosuite-shared create alex --email a@b.c --suite-admin
 iosuite-shared role alex ionotes editor
@@ -145,7 +172,7 @@ and the old user tables are renamed `*_migrated`, not dropped.
 
 ## Tests
 
-`pytest tests/test_updates.py` runs without a database. The rest of `pytest` needs a MariaDB of its own: a Docker container it starts itself (`iothing-test-mariadb`, kept for the next
-run), or the server named by `IOTHING_TEST_DB=host:port:user:password` (a user that may create and drop databases).
+`pytest tests/test_updates.py` runs without a database. The rest of `pytest` needs a MariaDB of its own: a Docker container it starts itself (`iosuite-test-mariadb`, kept for the next
+run), or the server named by `IOSUITE_TEST_DB=host:port:user:password` (a user that may create and drop databases).
 It uses a database `iosuite_shared_test` there, dropped and made again per test, and never a live Shared ioSuite database;
 without a test server it is skipped. The apps' suites use the same helper (`iosuite_shared.testing`).

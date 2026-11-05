@@ -2,7 +2,7 @@
 version, running the app's update.sh, restarting, the MCP admin token, and the tail of the server log.
 
     from iosuite_shared.updates import Updater
-    updater = Updater("iocalendar", version=APP_VERSION, root=ROOT)        # repo avandeputte/iocalendar, branch main
+    updater = Updater("iocalendar", version=__version__, root=ROOT)        # repo avandeputte/iocalendar, branch main
     updater.start_daily()                                                   # the daily check, while the setting is on
     app.include_router(auth.server_router(updater, log_file=LOG_FILE))      # GET/POST /api/server, GET /api/log
 
@@ -25,10 +25,10 @@ import time
 import urllib.request
 from pathlib import Path
 
-from iosuite_shared import db
+from iosuite_shared import config, db
 
 DAILY = 24 * 3600
-VERSION_RE = re.compile(r'^(?:APP_VERSION|__version__)\s*=\s*"([^"]+)"', re.M)
+VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.M)
 
 
 def _version_tuple(v: str) -> tuple:
@@ -36,13 +36,13 @@ def _version_tuple(v: str) -> tuple:
 
 
 def _env_flag_off(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in ("0", "off", "false", "no")
+    return not config.env_flag(name, True)
 
 
 class Updater:
     """One per app. `app` is its key (iocalendar), `version` the running version, `root` the folder with update.sh.
     `repo` and `branch` default to <PREFIX>_REPO / <PREFIX>_BRANCH in the environment, then avandeputte/<app> and main.
-    `version_file` is the file in the repository that holds the version line (APP_VERSION = "..." or __version__),
+    `version_file` is the file in the repository that holds the version line (__version__ = "..."),
     relative to the repository root. UPDATE_CHECK=0 in the environment locks the daily check off; MCP_ADMIN_TOKEN
     fixes the MCP admin token."""
 

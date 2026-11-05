@@ -1,13 +1,23 @@
-"""iosuite-shared: init | list | create | role | password | migrate (see migrate.py)."""
+"""iosuite-shared: init | check | list | create | admin | role | password | migrate (see migrate.py).
+
+Every app's setup.sh makes its first admin with `iosuite-shared admin NAME --app APP` (the password from ADMIN_PASSWORD,
+else asked for) and checks the Shared ioSuite database with `iosuite-shared check`; run them with the app's config.env
+loaded (`--config FOLDER` reads FOLDER/config.env first).
+"""
 import argparse
 import getpass
+import os
 import sys
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="iosuite-shared", description="The shared ioThing user database")
     sub = p.add_subparsers(dest="cmd", required=True)
+    p.add_argument("--config", default=None, help="a folder whose config.env is read first (an app's folder)")
     sub.add_parser("init", help="create the database tables")
+    sub.add_parser("check", help="connect to the Shared ioSuite database and count the accounts")
+    ad = sub.add_parser("admin", help="make NAME an admin of APP (created when missing; the first account is a suite admin)")
+    ad.add_argument("name"); ad.add_argument("--app", required=True)
     sub.add_parser("list", help="every account and its roles")
     c = sub.add_parser("create", help="a new account (suite admin with --suite-admin)")
     c.add_argument("name"); c.add_argument("--email", default=""); c.add_argument("--password", default=None); c.add_argument("--suite-admin", action="store_true")
@@ -26,6 +36,9 @@ def main(argv=None):
     rt = sub.add_parser("retire", help="rename the apps' own user tables to *_migrated (after migrate --keep-old)")
     rt.add_argument("--iopix"); rt.add_argument("--ionotes"); rt.add_argument("--iocontacts")
     a = p.parse_args(argv)
+    if a.config:
+        from iosuite_shared import config
+        config.load_file(a.config)
 
     from iosuite_shared import users
     if a.cmd == "migrate":
@@ -37,6 +50,22 @@ def main(argv=None):
     users.init()
     if a.cmd == "init":
         print("ok")
+    elif a.cmd == "check":
+        from iosuite_shared import config
+        print(f"ok: {config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}, {len(users.list_users())} account(s)")
+    elif a.cmd == "admin":
+        password = os.environ.get("ADMIN_PASSWORD") or getpass.getpass(f"Password for {a.name}: ")
+        u = users.find(a.name)
+        try:
+            if u:
+                users.update(u["id"], password=password or None, role="admin", app=a.app)
+                print(f"ok: {a.name} is an admin of {a.app}")
+            else:
+                first = not users.any_users()
+                users.create(a.name, password, "admin", a.app, suite_admin=first)
+                print(f"ok: created {a.name}" + (" (suite admin)" if first else ""))
+        except ValueError as e:
+            sys.exit(f"error: {e}")
     elif a.cmd == "list":
         for u in users.list_users():
             roles = ", ".join(f"{k}={v}" for k, v in users.roles_of(u["id"]).items()) or "-"

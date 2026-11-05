@@ -36,7 +36,7 @@ def github(sha="abcdef0123456789", remote_version="1.3.0", msg="v1.3.0: better",
             return json.dumps({"sha": sha, "commit": {"committer": {"date": "2026-11-05T01:02:03Z"}, "message": msg + "\n\nmore"}}).encode()
         if remote_version is None:
             return b"nothing here"
-        return f'APP_VERSION = "{remote_version}"\n'.encode()
+        return f'__version__ = "{remote_version}"\n'.encode()
     return _get
 
 
@@ -68,7 +68,7 @@ def test_commit_from_file_and_check_outcomes(tmp_path, monkeypatch):
 
 
 def test_version_line_shapes():
-    assert updates.VERSION_RE.search('APP_VERSION = "2.0.1"\n').group(1) == "2.0.1"
+    assert updates.VERSION_RE.search('APP_VERSION = "2.0.1"\n') is None  # one spelling in every app
     assert updates.VERSION_RE.search('"""doc"""\n__version__ = "0.4.2"\n').group(1) == "0.4.2"
     assert updates._version_tuple("1.10.2") > updates._version_tuple("1.9.9")
 

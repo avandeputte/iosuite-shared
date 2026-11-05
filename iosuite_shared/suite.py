@@ -19,6 +19,9 @@ import time
 
 from iosuite_shared import config, db
 
+# Every app's default port: different for each, so all of them can run on one host. The apps' tests check theirs.
+PORTS = {"iopix": 8600, "ionotes": 8610, "iocalendar": 8620, "iosuite": 8630, "iocontacts": 8640, "iohealth": 47800}
+
 FIELDS = ("name", "description", "version", "color", "icon")
 SEEN_EVERY_S = 3600  # last_seen is refreshed at most this often per app (the address itself is written when it changes)
 

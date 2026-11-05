@@ -2,10 +2,10 @@
 
 The library's own tests and the apps' suites need a MariaDB for the Shared ioSuite database. Two ways, the same as iopix:
 
-- IOTHING_TEST_DB=host:port:user:password names one (CI uses a MariaDB service this way). The user must be allowed
+- IOSUITE_TEST_DB=host:port:user:password names one (CI uses a MariaDB service this way). The user must be allowed
   to CREATE and DROP databases: every run starts from empty databases of its own.
-- Otherwise a container is started with Docker, `iothing-test-mariadb` on a free local port, and left running for
-  the next run (`docker rm -f iothing-test-mariadb` throws it away). Without Docker and without IOTHING_TEST_DB the
+- Otherwise a container is started with Docker, `iosuite-test-mariadb` on a free local port, and left running for
+  the next run (`docker rm -f iosuite-test-mariadb` throws it away). Without Docker and without IOSUITE_TEST_DB the
   suite is skipped with a message that says so.
 
 Nothing here ever touches the suite's live Shared ioSuite database: the test databases are made on that test server and
@@ -16,9 +16,9 @@ import socket
 import subprocess
 import time
 
-CONTAINER = "iothing-test-mariadb"
+CONTAINER = "iosuite-test-mariadb"
 IMAGE = "mariadb:11"
-ROOT_PASSWORD = "iothing-test"
+ROOT_PASSWORD = "iosuite-test"
 _server = None
 
 
@@ -27,7 +27,7 @@ def server() -> dict:
     global _server
     if _server is not None:
         return _server or None
-    given = os.environ.get("IOTHING_TEST_DB", "")
+    given = os.environ.get("IOSUITE_TEST_DB", "")
     if given:
         host, port, user, password = (given.split(":", 3) + ["", "", ""])[:4]
         c = {"host": host, "port": int(port or 3306), "user": user or "root", "password": password}
@@ -47,7 +47,7 @@ def _docker():
     try:
         out = subprocess.run(["docker", "port", CONTAINER, "3306/tcp"], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired) as e:
-        server.reason = f"no Docker ({e}) and no IOTHING_TEST_DB"
+        server.reason = f"no Docker ({e}) and no IOSUITE_TEST_DB"
         return None
     if out.returncode != 0:  # not running: start it (a stopped one of the same name is removed first)
         subprocess.run(["docker", "rm", "-f", CONTAINER], capture_output=True, timeout=30)

@@ -174,6 +174,15 @@ environment change what is followed; `UPDATE_CHECK=0` locks the daily check off;
 `updater.available()` gives the banner what it needs after a check found a newer version; `updater.token_ok(given)`
 checks the admin token (the one `update.sh` sends when it is run from a container's shell).
 
+Every app's `update.sh` is the same script, rendered from `templates/update.sh`; only the block "the app" differs
+(name, label, repository, the `server` subfolder for ioHealth, the files an installed copy gets, optional package
+groups). Render it from a checkout of this repository:
+
+    python3 templates/render-update.py <app dir> iopix ioPix avandeputte/iopix "" "app static pyproject.toml ..." [groups-file] [after-file]
+
+A groups file holds one `  has <group> <module>` line per optional extra (`  has ocr rapidocr`); the after file is shell
+that runs once the new code is in place. Change the template here, then render it into every app.
+
 `updates.setup_log(LOG_FILE)` sets logging up the same way in every app: INFO to stderr, and a rotating copy of
 everything (5 MB, 3 old files, uvicorn's lines included) in `LOG_FILE`, which `tail()` and `GET /api/log` read. The daily-check switch and the token are settings of the app in the Shared ioSuite
 database; pass `settings=(get, set)` to keep them elsewhere.

@@ -33,7 +33,13 @@ the environment, such as a container's, win). The app reads it first, before any
 ```python
 from iosuite_shared import config as shared_config
 shared_config.load_file(APP_DIR)            # APP_DIR/config.env into os.environ
+globals().update(shared_config.standard("iocalendar", APP_DIR))   # APP_DIR, DATA_DIR, STATIC_DIR, LOG_FILE, HOST, PORT, PUBLIC_URL,
+                                                                  # BASE_URL, FORWARDED_ALLOW_IPS, TLS_*_FILE, MCP_FORCED, ADMIN_USER/PASSWORD
+DB = shared_config.own_db("calendar")       # the app's own database: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD (no default password)
 ```
+
+`DATA_DIR` (`APP_DIR/data` by default) is where an app writes on its own; the server log is `LOG_FILE`, `DATA_DIR/<app>.log`
+by default (`LOG_FILE=` with nothing after it: none).
 
 The names every app understands the same way:
 
@@ -78,7 +84,9 @@ app.middleware("http")(auth.middleware(open_paths=("/", "/index.html"), open_pre
 app.include_router(auth.router())         # /api/auth/login, accounts, logout, logout_all, me, settings, password, setup,
                                           #           sessions (list, DELETE one), app-passwords, proxy, suite
 app.include_router(auth.users_router())   # /api/users (admins of this app), /api/users/{id}/sessions (list, DELETE all or ?session=)
+app.include_router(auth.status_router(updater, extra=lambda request: {...}))   # GET /api/status (below)
 app.include_router(auth.server_router(updater, log_file=LOG_FILE))   # /api/server, /api/log (below)
+auth.install(app, limit_for=lambda path, ctype: 4 << 20)   # 400 for bad input, the headers, the body cap (below)
 
 @router.post("/api/photos/tag", dependencies=[auth.access.editor_write])
 def tag(request: Request):
@@ -91,6 +99,46 @@ the ionotes/iocontacts ones (which copied them) keep working.
 
 Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, changes)`, and for anything else
 `users.get_value / set_value(uid, app, key, value)` (JSON values).
+
+## The status, the error answers, the headers and the body cap
+
+`GET /api/status` answers everyone, sign-in required or not, with the same shape in every app, so the start page, the
+containers' health checks and the apps' shells read it alike:
+
+```
+{ok, app, name, version, usersExist, requireLogin, signedIn, isAdmin, viaProxy, user: {id, name, displayName, email, role, suiteAdmin, passwordless} | null,
+ commit (signed in), update (admins, while the daily check is on: {version, remote, message, date, canRun, docker} | null), ...extra(request)}
+```
+
+`auth.install(app)` adds what every app's FastAPI gets the same way: a `ValueError`, `TypeError` or malformed JSON out
+of a route answers `400 {"detail": "Bad request: ..."}` (`not_found=(MyNotFound,)` names exceptions that mean 404;
+`error_key="error"` adds a second key beside `detail`); `X-Content-Type-Options: nosniff` and `Referrer-Policy:
+same-origin` on everything, `Cache-Control: no-store` on `/api/` and `no-cache` elsewhere unless the route set its
+own; and a body cap: a request larger than `limit_for(path, content_type)` bytes (`body_limit`, 4 MB, by default) is
+refused with 413 by its Content-Length before it is read, and as it arrives when it comes chunked or longer than it said.
+
+## MCP
+
+Every app's MCP server is the same server over streamable HTTP at `/mcp`, on the app's own port, and an assistant
+signs in like any other client: HTTP Basic with the user name and an app password, or a bearer app password
+(Settings › Apps and devices). Every tool acts as that account. The switch is the app's `mcp_enabled` setting (off
+until an admin turns it on under Settings › Server; `MCP=1` in the environment keeps it on).
+
+```python
+from iosuite_shared import mcp as shared_mcp
+server = shared_mcp.make_server("iocalendar", "ioCalendar", __version__, instructions="...")
+mcp_on = lambda: shared_mcp.enabled(db.get_setting, config.MCP_FORCED)
+app.middleware("http")(auth.middleware(..., open_prefixes=("/mcp",), before=auth.mcp_gate(mcp_on, on_user=shared_mcp.current_user.set)))
+shared_mcp.mount(app, server)                              # the /mcp routes, ahead of the app's own
+async with shared_mcp.running(server): yield               # in the lifespan
+
+@server.tool(annotations=shared_mcp.READ_ONLY)             # READ_ONLY, WRITES, ADDS, DELETES, UPDATES
+def overview():
+    u = shared_mcp.who()                                   # or need_writer(), need_admin(); clamp(n, lo, hi) for page sizes
+```
+
+`auth.mcp_gate` answers 404 while the switch is off ("The MCP server is switched off (Settings › Server).") and 401 when
+nobody is signed in; `shared_mcp.set_enabled(db.set_setting, on, forced)` saves the switch from `POST /api/server`.
 
 ## Updates, restart and the server log
 
@@ -124,7 +172,19 @@ app.include_router(auth.server_router(updater, log_file=LOG_FILE,
 and writes `ok: …` or `error: …` to the result file before the restart. `<APP>_REPO` and `<APP>_BRANCH` in the app's
 environment change what is followed; `UPDATE_CHECK=0` locks the daily check off; `MCP_ADMIN_TOKEN` fixes the token.
 `updater.available()` gives the banner what it needs after a check found a newer version; `updater.token_ok(given)`
-checks a token an MCP client sent. The daily-check switch and the token are settings of the app in the Shared ioSuite
+checks the admin token (the one `update.sh` sends when it is run from a container's shell).
+
+Every app's `update.sh` is the same script, rendered from `templates/update.sh`; only the block "the app" differs
+(name, label, repository, the `server` subfolder for ioHealth, the files an installed copy gets, optional package
+groups). Render it from a checkout of this repository:
+
+    python3 templates/render-update.py <app dir> iopix ioPix avandeputte/iopix "" "app static pyproject.toml ..." [groups-file] [after-file]
+
+A groups file holds one `  has <group> <module>` line per optional extra (`  has ocr rapidocr`); the after file is shell
+that runs once the new code is in place. Change the template here, then render it into every app.
+
+`updates.setup_log(LOG_FILE)` sets logging up the same way in every app: INFO to stderr, and a rotating copy of
+everything (5 MB, 3 old files, uvicorn's lines included) in `LOG_FILE`, which `tail()` and `GET /api/log` read. The daily-check switch and the token are settings of the app in the Shared ioSuite
 database; pass `settings=(get, set)` to keep them elsewhere.
 
 ## The suite's apps
@@ -153,6 +213,13 @@ suite.url_of("iopix")   # "https://photo.iothing.net" or None
 
 Over HTTP: `GET /api/auth/suite` (signed in) lists them; `DELETE /api/auth/suite/{app}` (suite admins) forgets an
 uninstalled one (it comes back if it starts again).
+
+## Tests
+
+`iosuite_shared.testing` gives every app's suite its MariaDB (`server()`, `fresh_database(name)`, `auth_env(name)`:
+Docker, or `IOSUITE_TEST_DB=host:port:user:password`), `clean_shared_tables(auth)` to empty the shared tables between
+tests, and two checks every app runs: `check_conventions(root, app, version, config)` (the suite's port, one version,
+`config.env`) and `check_access_declared(app, access.declared)` (every API route carries an access marker).
 
 ## Database naming convention
 

@@ -98,3 +98,55 @@ def auth_env(name: str) -> dict:
         key = "NAME" if k == "database" else k.upper()
         out["IOSUITE_DB_" + key] = str(v)
     return out
+
+
+# ---- what every app's test suite does the same way
+SHARED_TABLES = ("ios_user_roles", "ios_user_data", "ios_app_passwords", "ios_sessions", "ios_users", "ios_settings", "ios_apps")
+
+
+def clean_shared_tables(auth=None) -> None:
+    """Empty the Shared ioSuite database between two tests and forget every cache: accounts, roles, sessions, app
+    passwords, settings and the list of apps (the first account is #1 again). `auth` (the app's Auth) registers again on
+    the next request."""
+    from iosuite_shared import apppasswords, db, proxyauth, sessions, suite, users
+    users.init()
+    for t in SHARED_TABLES:
+        db.ex(f"DELETE FROM {t}")
+    db.ex("ALTER TABLE ios_users AUTO_INCREMENT = 1")
+    db.settings_cache.clear()
+    users.invalidate()
+    users._attempts.clear()
+    sessions.invalidate()
+    suite.invalidate()
+    apppasswords.forget()
+    proxyauth.forget_identities()
+    if auth is not None:
+        auth._registered = False
+
+
+def check_conventions(root, app: str, version: str, config, port_files=("Dockerfile", "docker-compose.yml", "config.env.example", "run.sh")) -> None:
+    """The conventions every app's repository follows (one test per app calls this): the suite's port for the app
+    (config.PORT, and named in the files that bind it), one version in pyproject.toml and the package, config.env as
+    the settings file (ignored by git, no older name left in the scripts or the README)."""
+    import re
+    from pathlib import Path
+    from iosuite_shared import suite
+    root = Path(root)
+    assert config.PORT == suite.PORTS[app], f"PORT defaults to {config.PORT}, the suite's port for {app} is {suite.PORTS[app]}"
+    for f in port_files:
+        assert str(suite.PORTS[app]) in (root / f).read_text(), f"{f} does not name port {suite.PORTS[app]}"
+    assert f'version = "{version}"' in (root / "pyproject.toml").read_text(), "pyproject.toml and the package disagree on the version"
+    assert "config.env" in (root / ".gitignore").read_text().split(), "config.env is not in .gitignore"
+    for f in ("setup.sh", "update.sh", "README.md"):
+        if (root / f).exists():
+            text = (root / f).read_text()
+            assert f"{app}.env" not in text and not re.search(r"(?<![\w.])\.env\b", text), f"{f} still names a settings file other than config.env"
+
+
+def check_access_declared(app, declared, ignore=("/api/openapi.json", "/api/docs"), prefix="/api/") -> None:
+    """Every API route of the FastAPI app carries exactly one access marker (dependencies=[access.<level>]), so a new
+    route can never be open to everyone by mistake. `declared` is the app's access.declared (Auth.access.declared)."""
+    from fastapi.routing import APIRoute
+    missing = [f"{sorted(r.methods)} {r.path}" for r in app.routes if isinstance(r, APIRoute) and r.path.startswith(prefix)
+               and r.path not in ignore and declared(r) is None]
+    assert not missing, "routes without exactly one access marker (dependencies=[access.<level>]):\n" + "\n".join(missing)

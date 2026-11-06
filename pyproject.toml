@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "iosuite-shared"
-version = "0.10.1"
+version = "0.11.0"
 description = "Shared accounts, sessions, roles and per-user settings for the ioThing apps (ioPix, ioNotes, ioCalendar, ioContacts, ioHealth, ioSuite)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 fastapi = ["fastapi<1"]
-test = ["pytest<10", "httpx<1", "fastapi<1"]
+test = ["pytest<10", "httpx<1", "fastapi<1", "mcp<3", "pyflakes<4"]
 
 [project.scripts]
 iosuite-shared = "iosuite_shared.cli:main"

@@ -293,3 +293,37 @@ def tail(path, lines: int = 300, contains: str = "", level: str = "any", request
     elif level == "error":
         out = [l for l in out if " ERROR " in l or " CRITICAL " in l or "Traceback" in l]
     return {"file": str(path), "size_bytes": size, "returned": min(lines, len(out)), "lines": out[-lines:]}
+
+
+# ---- the server log file
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def setup_log(path, level: int = None) -> bool:
+    """Logging the same way in every app: INFO to stderr (the service's journal), and when `path` is set a rotating copy
+    (5 MB, 3 old files) of everything, uvicorn's request and error lines included, which Maintenance › Updates and logs
+    and `tail()` read. Idempotent: a second call (the tests start the app more than once) adds nothing. False when the
+    file could not be opened (the app runs without it)."""
+    import logging
+    import logging.handlers
+    root = logging.getLogger()
+    if not root.handlers:
+        logging.basicConfig(level=level or logging.INFO, format=LOG_FORMAT)
+    elif level:
+        root.setLevel(level)
+    if root.level > logging.INFO or root.level == logging.NOTSET:
+        root.setLevel(logging.INFO)
+    if not path:
+        return False
+    if any(isinstance(h, logging.handlers.RotatingFileHandler) and h.baseFilename == str(Path(path).resolve()) for h in root.handlers):
+        return True
+    try:
+        h = logging.handlers.RotatingFileHandler(path, maxBytes=5 << 20, backupCount=3, encoding="utf-8")
+    except OSError as e:
+        logging.getLogger("iosuite_shared.updates").warning("no server log at %s: %s", path, e)
+        return False
+    h.setFormatter(logging.Formatter(LOG_FORMAT))
+    root.addHandler(h)
+    for name in ("uvicorn.access", "uvicorn.error"):  # uvicorn's loggers do not propagate to the root
+        logging.getLogger(name).addHandler(h)
+    return True

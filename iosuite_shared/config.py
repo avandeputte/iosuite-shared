@@ -86,3 +86,42 @@ def _read():
 
 
 _read()
+
+
+# ---- the settings every app reads the same way
+def standard(app: str, app_dir, log_name: str = None) -> dict:
+    """The settings every app of the suite has, read after load_file(app_dir), for the app's config module
+    (`globals().update(shared.standard("iocalendar", APP_DIR))`):
+
+      APP_DIR               the app's folder (config.env, update.sh, .venv live there)
+      DATA_DIR              DATA_DIR, else APP_DIR/data: what the app writes on its own (made when missing)
+      STATIC_DIR            APP_DIR/static: the web app's files, served under /static/
+      LOG_FILE              LOG_FILE, else DATA_DIR/<app>.log; LOG_FILE= with nothing after it: None (no file)
+      HOST, PORT            where the server listens: 0.0.0.0 and the app's own default port (suite.PORTS)
+      PUBLIC_URL            the address people and the other apps reach the app at; empty: the one it is reached at
+      BASE_URL              PUBLIC_URL, else http://localhost:PORT (the links in MCP results)
+      FORWARDED_ALLOW_IPS   the addresses that may tell the server the visitor's address and scheme (X-Forwarded-*): * by default
+      TLS_CERT_FILE, TLS_KEY_FILE   HTTPS served directly instead of behind a reverse proxy: both files
+      MCP_FORCED            MCP=1: the MCP endpoint is on whatever the setting says
+      ADMIN_USER, ADMIN_PASSWORD    the first admin account, created on a first start with no accounts (containers, installers)
+
+    IOSUITE_DB_* (this module), <APP>_REPO, <APP>_BRANCH, UPDATE_CHECK and MCP_ADMIN_TOKEN (iosuite_shared.updates) are
+    read where they are used."""
+    from iosuite_shared import suite
+    app_dir = Path(app_dir).resolve()
+    data_dir = Path(env("DATA_DIR", str(app_dir / "data"))).expanduser().resolve()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    port = env_int("PORT", suite.PORTS[app])
+    public_url = env("PUBLIC_URL").rstrip("/")
+    log_file = Path(env("LOG_FILE", str(data_dir / f"{log_name or app}.log"))).expanduser().resolve() if os.environ.get("LOG_FILE", "x") else None
+    return {"APP_DIR": app_dir, "DATA_DIR": data_dir, "STATIC_DIR": app_dir / "static", "LOG_FILE": log_file,
+            "HOST": env("HOST", "0.0.0.0"), "PORT": port, "PUBLIC_URL": public_url, "BASE_URL": public_url or f"http://localhost:{port}",
+            "FORWARDED_ALLOW_IPS": env("FORWARDED_ALLOW_IPS", "*"), "TLS_CERT_FILE": env("TLS_CERT_FILE"), "TLS_KEY_FILE": env("TLS_KEY_FILE"),
+            "MCP_FORCED": env_flag("MCP"), "ADMIN_USER": ADMIN_USER, "ADMIN_PASSWORD": ADMIN_PASSWORD}
+
+
+def own_db(default_name: str, default_user: str = None) -> dict:
+    """The app's own MariaDB (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD) as {host, port, database, user, password}.
+    No default password: setup.sh writes one into config.env, a container gets it from its environment."""
+    return {"host": env("DB_HOST", "127.0.0.1"), "port": env_int("DB_PORT", 3306), "database": env("DB_NAME", default_name),
+            "user": env("DB_USER", default_user or default_name), "password": os.environ.get("DB_PASSWORD", "")}

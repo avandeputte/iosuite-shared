@@ -6,10 +6,14 @@ dependencies that say who may call a route, and the routers with the sign-in and
     @router.get("/api/x", dependencies=[auth.access.admin])
     app.include_router(auth.router())        # /api/auth/* : login, accounts, logout, logout_all, me, settings, password, setup
     app.include_router(auth.users_router())  # /api/users  : list, create, change, delete (admins of this app)
+    app.include_router(auth.status_router(updater, extra=...))   # GET /api/status, public, the same shape in every app
+    app.include_router(auth.server_router(updater, log_file=...)) # GET/POST /api/server, GET /api/log (admins)
+    auth.install(app, limit_for=...)         # 400 for bad input, the security headers, no-store on the API, the body cap
 
 The API shapes are those of iopix (ionotes copied them), so the apps' pages keep working.
 """
 import base64
+import json
 import logging
 import time
 from urllib.parse import urlsplit
@@ -78,6 +82,69 @@ def json_body(request: Request):
             raise HTTPException(400, "A JSON object is expected")
         return body
     return read()
+
+
+STATUS_PATH = "/api/status"
+PUBLIC_USER_FIELDS = ("id", "name", "displayName", "email", "role", "suiteAdmin", "passwordless")
+
+
+def public_user(u) -> dict | None:
+    """The account as /api/status shows it to its own browser: the fields every app's shell uses, nothing else."""
+    if not u:
+        return None
+    return {k: u.get(k) for k in PUBLIC_USER_FIELDS if k in u}
+
+
+def content_type(headers) -> str:
+    return (headers.get("content-type") or "").split(";")[0].strip().lower()
+
+
+class TooLarge(Exception):
+    pass
+
+
+def _has_too_large(e: BaseException) -> bool:
+    if isinstance(e, TooLarge):
+        return True
+    return any(_has_too_large(x) for x in getattr(e, "exceptions", ()))  # inside an ExceptionGroup (task groups)
+
+
+class BodyCap:
+    """ASGI middleware: the request body counted as it is read and refused (413) once past `limit_for(path, content
+    type)`, for a body that comes without a Content-Length (chunked) or longer than it said. The outermost layer, so
+    the refusal reaches the client through every other middleware. Auth.install() adds it."""
+
+    def __init__(self, app, limit_for, error=None):
+        self.app, self.limit_for = app, limit_for
+        self.error = error or (lambda msg, status: JSONResponse({"detail": msg}, status_code=status))
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] in ("GET", "HEAD", "OPTIONS"):
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope.get("headers") or []}
+        limit = self.limit_for(scope["path"], content_type(headers))
+        seen, started = 0, False
+
+        async def capped():
+            nonlocal seen
+            msg = await receive()
+            if msg["type"] == "http.request":
+                seen += len(msg.get("body") or b"")
+                if seen > limit:
+                    raise TooLarge()
+            return msg
+
+        async def sending(msg):
+            nonlocal started
+            started = started or msg["type"] == "http.response.start"
+            await send(msg)
+
+        try:
+            await self.app(scope, capped, sending)
+        except BaseException as e:
+            if not _has_too_large(e) or started:
+                raise
+            await self.error("That request is too large", 413)(scope, receive, send)
 
 
 class Auth:
@@ -200,11 +267,12 @@ class Auth:
 
     def middleware(self, open_paths=(), open_prefixes=("/api/auth/",), is_open=None, before=None, after=None, api_prefix="/api/"):
         """A complete auth middleware: resolve, the require-sign-in rule (open_paths / open_prefixes, or whatever
-        `is_open(path)` says, stay reachable; /api/auth/ always is), the cross-site check on writes, and the cookie
-        afterwards. `before(request)` runs once the user is known and may return a response (the app's own gates:
+        `is_open(path)` says, stay reachable; /api/auth/ and /api/status always are), the cross-site check on writes,
+        and the cookie afterwards. `before(request)` runs once the user is known and may return a response (the app's own gates:
         MCP tokens...); `after(request, response)` runs at the end."""
         auth = self
         open_prefixes = tuple(open_prefixes) + ("/api/auth/",)
+        open_paths = tuple(open_paths) + (STATUS_PATH,)  # the status answers everyone, as the sign-in routes do
 
         async def guard(request: Request, call_next):
             path = request.url.path
@@ -600,6 +668,123 @@ class Auth:
                 return FileResponse(str(log_file), media_type="text/plain", filename=f"{self.app}.log", content_disposition_type="attachment")
 
         return r
+
+
+    # ---- the status: public, the same shape in every app
+    def status_router(self, updater=None, extra=None) -> APIRouter:
+        """GET /api/status, open to everyone (the middleware keeps it reachable when sign-in is required): what the shell
+        needs before anyone signs in, and for admins whether a newer version is out.
+            {ok, app, name, version, usersExist, requireLogin, signedIn, isAdmin, viaProxy, user,
+             commit (signed in), update (admins, while the daily check is on: {version, remote, ..., canRun, docker} or null)}
+        `extra(request)` adds the app's own fields (a dict); it is called after the user is known, so it may answer
+        differently for a visitor, an account and an admin."""
+        auth, access = self, self.access
+        r = APIRouter()
+
+        @r.get(STATUS_PATH, dependencies=[access.public])
+        async def api_status(request: Request):
+            return await run_in_threadpool(auth.status, request, updater, extra)
+
+        return r
+
+    def status(self, request: Request, updater=None, extra=None) -> dict:
+        """What GET /api/status answers (also for an app that has to serve it from its own route)."""
+        u = self.current_user(request)
+        signed, admin = users.is_signed_in(u), users.is_admin(u)
+        out = {"ok": True, "app": self.app, "name": self.label, "version": (self.suite_entry or {}).get("version") or (updater.version if updater else None),
+               "usersExist": users.any_users(), "requireLogin": users.require_login(self.app), "signedIn": signed, "isAdmin": admin,
+               "viaProxy": bool(getattr(request.state, "via_proxy", False)), "user": public_user(u)}
+        if updater is not None:
+            if signed:
+                out["commit"] = updater.local_commit()[:7]
+            if admin:
+                a = updater.available() if updater.auto_check_enabled() else None
+                if a:
+                    a.update(canRun=updater.can_run(), docker=updater.in_docker())
+                out["update"] = a
+        if extra:
+            out.update(extra(request) or {})
+        return out
+
+    # ---- the MCP endpoint's gate
+    def mcp_gate(self, enabled, path: str = "/mcp", on_user=None, settings_page: str = "Settings › Server"):
+        """A `before` hook for middleware() (or something an app's own hook calls first): a request to the MCP endpoint
+        is refused with 404 while the switch is off (`enabled()` is false), with 401 when nobody is signed in (MCP
+        clients sign in with an app password: HTTP Basic, or a bearer token), and otherwise `on_user(user)` runs (an app
+        sets its MCP context variable there). Anything else passes."""
+        auth = self
+
+        def gate(request: Request):
+            p = request.url.path
+            if p != path and not p.startswith(path + "/"):
+                return None
+            if not enabled():
+                return JSONResponse({"detail": f"The MCP server is switched off ({settings_page})."}, status_code=404)
+            user = auth.current_user(request)
+            if not user:
+                return JSONResponse({"detail": "Sign in with your user name and an app password (HTTP Basic), or send 'Authorization: Bearer "
+                                               "<app password>'. Make one in Settings › Apps and devices."},
+                                    status_code=401, headers={"WWW-Authenticate": f'Basic realm="{auth.realm}", Bearer realm="{auth.realm}"'})
+            if on_user:
+                on_user(user)
+            return None
+        return gate
+
+    # ---- what every app's FastAPI gets the same way
+    def install(self, app, api_prefix: str = "/api/", body_limit: int = 4 << 20, limit_for=None, error_key: str = None,
+                not_found=()) -> None:
+        """The pieces every app of the suite adds to its FastAPI, once:
+        - a ValueError, TypeError or malformed JSON out of a route is the client's mistake: a 400 that says so, not a
+          500 and a traceback; `not_found` names the app's own exception classes that mean 404;
+        - the headers: X-Content-Type-Options: nosniff and Referrer-Policy: same-origin on everything, Cache-Control:
+          no-store on the API (api_prefix) and no-cache elsewhere, unless the route set its own;
+        - the body cap: a request body larger than `limit_for(path, content_type)` bytes (`body_limit` by default) is
+          refused with 413, by its Content-Length before it is read, and as it arrives when it comes chunked or longer
+          than it said, so nothing large is ever held in memory.
+        `error_key` names a second key the error JSON carries beside `detail` (ioHealth's phone app reads `error`)."""
+        log = self.log
+        limit_for = limit_for or (lambda path, ctype: body_limit)
+
+        def error(msg: str, status: int, headers=None):
+            body = {"detail": msg}
+            if error_key:
+                body[error_key] = msg
+            return JSONResponse(body, status_code=status, headers=headers)
+
+        if error_key:
+            @app.exception_handler(HTTPException)
+            async def _http_error(request: Request, e: HTTPException):
+                return error(e.detail, e.status_code, getattr(e, "headers", None))
+
+        for exc in not_found:
+            @app.exception_handler(exc)
+            async def _not_found(request: Request, e: Exception):
+                return error(str(e) or "Not found", 404)
+
+        @app.exception_handler(ValueError)
+        @app.exception_handler(TypeError)
+        @app.exception_handler(json.JSONDecodeError)
+        async def _bad_input(request: Request, e: Exception):
+            log.warning("bad input on %s %s: %s: %s", request.method, request.url.path, type(e).__name__, str(e)[:200])
+            return error(f"Bad request: {str(e)[:200] or type(e).__name__}", 400)
+
+        @app.middleware("http")
+        async def _headers_and_limits(request: Request, call_next):
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                try:
+                    size = int(request.headers.get("content-length") or 0)
+                except ValueError:
+                    return error("Bad Content-Length", 400)
+                if size > limit_for(request.url.path, content_type(request.headers)):
+                    return error("That request is too large", 413)
+            response = await call_next(request)
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            response.headers.setdefault("Referrer-Policy", "same-origin")
+            if "cache-control" not in response.headers:
+                response.headers["Cache-Control"] = "no-store" if request.url.path.startswith(api_prefix) else "no-cache"
+            return response
+
+        app.add_middleware(BodyCap, limit_for=limit_for, error=error)  # added last: the outermost layer
 
     def _delete(self, me, user_id: int):
         if me and me["id"] == user_id:

@@ -1,4 +1,4 @@
-"""iosuite-shared: init | check | list | create | admin | role | password | migrate (see migrate.py).
+"""iosuite-shared: init | check | list | create | admin | role | password | migrate (see migrate.py) | install (see install.py).
 
 Every app's setup.sh makes its first admin with `iosuite-shared admin NAME --app APP` (the password from ADMIN_PASSWORD,
 else asked for) and checks the Shared ioSuite database with `iosuite-shared check`; run them with the app's config.env
@@ -35,10 +35,15 @@ def main(argv=None):
     m.add_argument("--keep-old", action="store_true", help="leave the apps' own user tables in place (old versions keep working); `retire` renames them later")
     rt = sub.add_parser("retire", help="rename the apps' own user tables to *_migrated (after migrate --keep-old)")
     rt.add_argument("--iopix"); rt.add_argument("--ionotes"); rt.add_argument("--iocontacts")
+    from iosuite_shared import install
+    install.add_parser(sub)
     a = p.parse_args(argv)
     if a.config:
         from iosuite_shared import config
         config.load_file(a.config)
+
+    if a.cmd == "install":  # no database needed here: the companions' setup.sh check theirs
+        return install.main(a)
 
     from iosuite_shared import users
     if a.cmd == "migrate":

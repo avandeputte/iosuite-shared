@@ -200,6 +200,27 @@ wins a password conflict (iopix, then ionotes, then ioContacts); an admin everyw
 `--apply` it only prints the plan. With it, the apps' tables that point at user ids are rewritten to the shared ids
 and the old user tables are renamed `*_migrated`, not dropped.
 
+### Several apps in one machine or container: `install`
+
+```
+ADMIN_PASSWORD=… iosuite-shared --config /opt/iosuite/app install iocalendar iocontacts --admin alex --service --from iosuite
+iosuite-shared --config /opt/iopix/app install all --no-service
+```
+
+Every app's `setup.sh` ends with "Also install other apps of the suite here?" (flag `--also iopix,ionotes`; `--also all`;
+the `IO<APP>_ALSO` environment variable in the Proxmox installers). The answer comes here, so the questions every app
+shares are asked once: `install` reads the calling app's config.env and hands each companion the same **app database
+server** (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`; each app gets its own database name, `calendar`, `contacts`,
+`notes`, `health`, `iopix`, `suite`, created when the user may, so the user needs rights on those names too), the same
+**Shared ioSuite database** (`IOSUITE_DB_*`), the same sign-in domain (`COOKIE_DOMAIN`) and, with `--admin`, the same
+admin account. Each companion is fetched from GitHub into `<base>/<app>/app` (`/opt/iocalendar/app` beside
+`/opt/iosuite/app`, with its commit in `COMMIT`, the layout the Proxmox installers make), and its own `setup.sh --yes`
+installs the packages, writes config.env, creates the tables and the systemd service. The passwords travel in the
+environment (`IOCALENDAR_DB`, `IOCALENDAR_SUITE_DB`, `IOCALENDAR_ADMIN`, ...), never on a command line. What differs
+per app keeps its default: the usual port, no public address, the machine's time zone; ioPix gets `--no-digikam`,
+`--features none` and the photos folder of `--photos` (default `/library/photos`). An app already set up in its folder
+is left alone. Afterwards each app updates itself as always (its `update.sh`, or Maintenance › Updates in the web app).
+
 ## Tests
 
 `pytest tests/test_updates.py` runs without a database. The rest of `pytest` needs a MariaDB of its own: a Docker container it starts itself (`iosuite-test-mariadb`, kept for the next

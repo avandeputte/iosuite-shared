@@ -95,3 +95,21 @@ def test_cli_has_install(tmp_path, monkeypatch):
     monkeypatch.setattr(install, "install", lambda names, config_dir, **kw: calls.update(names=names, config_dir=config_dir, **kw) or [])
     assert cli.main(["--config", str(tmp_path), "install", "iopix,ionotes", "--admin", "alex", "--no-service", "--from", "iosuite"]) == 0
     assert calls["names"] == ["iopix", "ionotes"] and calls["admin"] == "alex" and calls["service"] is False and calls["from_app"] == "iosuite"
+
+
+def test_local_mariadb_gets_the_databases(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(install.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(install.shutil, "which", lambda n: "/usr/bin/mariadb")
+
+    class R:
+        returncode, stderr = 0, ""
+
+    monkeypatch.setattr(install.subprocess, "run", lambda cmd, **kw: seen.update(cmd=cmd, sql=kw["input"]) or R())
+    cfg = dict(DB_HOST="127.0.0.1", DB_USER="iopix", DB_PASSWORD="x")
+    entries = install.plan(["iocalendar", "ionotes"], cfg, tmp_path)
+    install.prepare_local_databases(entries, cfg, log=lambda *_: None)
+    assert seen["cmd"] == ["mariadb"] and "`calendar`" in seen["sql"] and "`notes`" in seen["sql"] and "'iopix'@'localhost'" in seen["sql"]
+    seen.clear()
+    install.prepare_local_databases(entries, dict(DB_HOST="db.lan", DB_USER="suite"), log=lambda *_: None)
+    assert not seen  # a remote server is left to its administrator

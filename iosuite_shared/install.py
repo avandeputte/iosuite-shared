@@ -135,6 +135,28 @@ def plan(names, cfg, base, admin=None, service=None, photos=None, from_app=None)
     return out
 
 
+def prepare_local_databases(entries, cfg, log=print):
+    """A MariaDB on this machine (DB_HOST loopback, as `setup.sh --db local` of ioPix or a Proxmox container with its own
+    server make) usually grants the app's user its own database only; as root, over the socket, give that user each
+    companion's database too, so their setup.sh can create the tables. Elsewhere nothing is done: the person's user
+    needs rights on those names, as the question says."""
+    host = (cfg.get("DB_HOST") or "").lower()
+    if host not in ("127.0.0.1", "localhost", "::1") or not cfg.get("DB_USER") or os.geteuid() != 0 or not shutil.which("mariadb"):
+        return
+    user = cfg["DB_USER"].replace("'", "''")
+    sql = "".join(f"CREATE DATABASE IF NOT EXISTS `{APPS[e['name']]['db']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
+                  f"GRANT ALL PRIVILEGES ON `{APPS[e['name']]['db']}`.* TO '{user}'@'localhost', '{user}'@'127.0.0.1';\n" for e in entries) + "FLUSH PRIVILEGES;\n"
+    try:
+        r = subprocess.run(["mariadb"], input=sql, text=True, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log(f"  note: could not prepare the databases on the local MariaDB ({exc}); each app creates its own when {cfg['DB_USER']} may")
+        return
+    if r.returncode == 0:
+        log(f"  local MariaDB: the databases {', '.join(APPS[e['name']]['db'] for e in entries)} belong to {cfg['DB_USER']} too")
+    else:
+        log(f"  note: could not prepare the databases on the local MariaDB ({r.stderr.strip()[:200]}); each app creates its own when {cfg['DB_USER']} may")
+
+
 def say(msg):
     print(f"\n\033[1;34m==>\033[0m {msg}", flush=True)
 
@@ -180,6 +202,7 @@ def install(names, config_dir, base=None, admin=None, service=None, photos=None,
         if not p.is_dir():
             p.mkdir(parents=True, exist_ok=True)
             log(f"  made the photos folder {p}: mount or copy your photos there (ioPix's Settings can add more folders)")
+    prepare_local_databases([e for e in entries if not (e["target"] / "config.env").exists()], cfg, log=log)
     failed = []
     for e in entries:
         say(f"Installing {e['label']} into {e['target']}")

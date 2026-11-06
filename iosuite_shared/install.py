@@ -189,7 +189,7 @@ def run_setup(entry, log=print):
     return subprocess.run(cmd, cwd=str(entry["target"]), env=env).returncode
 
 
-def install(names, config_dir, base=None, admin=None, service=None, photos=None, from_app=None, fetcher=fetch, runner=run_setup, log=print):
+def install(names, config_dir, base=None, admin=None, service=None, photos=None, from_app=None, db_admin=None, fetcher=fetch, runner=run_setup, log=print):
     """Install every app in NAMES; returns the names that failed (empty when all went well)."""
     cfg = read_env_file(Path(config_dir) / "config.env") if config_dir else {}
     base = Path(base) if base else base_dir(config_dir or os.getcwd())
@@ -202,7 +202,12 @@ def install(names, config_dir, base=None, admin=None, service=None, photos=None,
         if not p.is_dir():
             p.mkdir(parents=True, exist_ok=True)
             log(f"  made the photos folder {p}: mount or copy your photos there (ioPix's Settings can add more folders)")
-    prepare_local_databases([e for e in entries if not (e["target"] / "config.env").exists()], cfg, log=log)
+    fresh = [e for e in entries if not (e["target"] / "config.env").exists()]
+    if db_admin and fresh:  # a MariaDB administrator was given: the companions' databases are made for the app user, wherever the server is
+        from iosuite_shared import provision
+        provision.run(db_admin, os.environ.get("DB_ADMIN_PASSWORD", ""), cfg, also=[e["name"] for e in fresh], log=log)
+    else:
+        prepare_local_databases(fresh, cfg, log=log)
     failed = []
     for e in entries:
         say(f"Installing {e['label']} into {e['target']}")
@@ -234,12 +239,13 @@ def add_parser(sub):
     g.add_argument("--no-service", dest="service", action="store_false", help="only install; start each with its run.sh")
     p.add_argument("--photos", default=None, help=f"ioPix: the folder with the photos (default {DEFAULT_PHOTOS})")
     p.add_argument("--from", dest="from_app", default=None, help="the app that is calling (never reinstalled)")
+    p.add_argument("--db-admin", default=None, help="a MariaDB administrator (password from DB_ADMIN_PASSWORD): the companions' databases are created for the app user")
     return p
 
 
 def main(a):
     names = parse_apps(a.apps)
-    failed = install(names, a.config, base=a.into, admin=a.admin, service=a.service, photos=a.photos, from_app=a.from_app)
+    failed = install(names, a.config, base=a.into, admin=a.admin, service=a.service, photos=a.photos, from_app=a.from_app, db_admin=a.db_admin)
     if failed:
         print(f"\nerror: not installed: {', '.join(failed)}", file=sys.stderr)
         return 1

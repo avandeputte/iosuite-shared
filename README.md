@@ -288,6 +288,21 @@ per app keeps its default: the usual port, no public address, the machine's time
 `--features none` and the photos folder of `--photos` (default `/library/photos`). An app already set up in its folder
 is left alone. Afterwards each app updates itself as always (its `update.sh`, or Maintenance › Updates in the web app).
 
+### A MariaDB administrator makes the databases and users: `provision`
+
+```
+DB_ADMIN_PASSWORD=… iosuite-shared --config /opt/iosuite/app provision --admin root [--also iocalendar,ionotes] [--dry-run]
+DB_ADMIN_PASSWORD=… iosuite-shared --config /opt/iosuite/app install iocalendar --db-admin root ...
+```
+
+Every app's `setup.sh` asks, right after the database questions, for a MariaDB / MySQL administrator (flag
+`--db-admin USER:PASSWORD`, or `IO<APP>_DB_ADMIN`; empty: the databases and users exist already). With one, `provision`
+creates what config.env names: the app's own database and user (`DB_*`), the Shared ioSuite database and user
+(`IOSUITE_DB_*`) and, with `--also`, the companions' databases for the same app user. Nothing is dropped: databases and
+users are created when missing, the users' passwords are set to the ones answered, and each user gets all privileges
+on its own databases only; users are made for `'%'` (and `'localhost'` when the server is this machine). The
+administrator's password travels in `DB_ADMIN_PASSWORD`, never on a command line, and is not written anywhere.
+
 ## Tests
 
 `pytest tests/test_updates.py` runs without a database. The rest of `pytest` needs a MariaDB of its own: a Docker container it starts itself (`iosuite-test-mariadb`, kept for the next

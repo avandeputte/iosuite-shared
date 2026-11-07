@@ -172,7 +172,7 @@ class Auth:
         # what a scoped app password may reach, by path prefix (apppasswords: 'dav', the app's sync protocols); anywhere
         # else it gets 403. An app without DAV sets it to {} so it offers no such passwords.
         self.scope_paths = {apppasswords.DAV: ("/dav", "/.well-known/caldav", "/.well-known/carddav")}
-        # 'read' (apppasswords.READ, the apps' own service accounts) is the same everywhere: GET and HEAD under /api/
+        # 'read' (apppasswords.READ, the apps' own service accounts) is the same everywhere: GET and HEAD, not MCP or DAV
         remember_peer()
 
     # ---- the suite's list of apps
@@ -281,9 +281,10 @@ class Auth:
         if not scope or not getattr(request.state, "user", None):
             return None
         if scope == apppasswords.READ:
-            if request.method in ("GET", "HEAD") and request.url.path.startswith("/api/"):
+            if request.method in ("GET", "HEAD") and not request.url.path.startswith(apppasswords.READ_NEVER):
                 return None
-            return JSONResponse({"detail": f"This app password may only read {self.label}'s API."}, status_code=403)
+            return JSONResponse({"detail": f"This app password may only read from {self.label} (no changes, no MCP, no sync)."},
+                                status_code=403)
         if request.url.path.startswith(tuple(self.scope_paths.get(scope, ())) or ("\0",)):
             return None
         return JSONResponse({"detail": f"This app password is for {self.label}'s sync protocols only (CalDAV / CardDAV). "

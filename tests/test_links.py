@@ -22,6 +22,10 @@ def provider_app():
     def add(request: Request):
         return {"ok": True}
 
+    @app.get("/face/1")
+    def face(request: Request):
+        return {"ok": True}
+
     @app.get("/dav/x")
     def dav(request: Request):
         return {"ok": True}
@@ -48,7 +52,7 @@ def test_service_account_and_read_only_app_password():
     auth_h = {"Authorization": h["Authorization"]}
     assert c.get("/api/contacts", headers=auth_h).json() == {"who": "iocalendar-app"}
     assert c.post("/api/contacts", headers=auth_h).status_code == 403
-    assert c.get("/dav/x", headers=auth_h).status_code == 403
+    assert c.get("/dav/x", headers=auth_h).status_code == 403 and c.get("/face/1", headers=auth_h).status_code == 200
     assert users.any_users()
 
 
@@ -79,11 +83,13 @@ def test_revoked_password_is_made_again(monkeypatch):
 def test_cloudflare_service_token_goes_along():
     suite.register("iopix", name="ioPix", url="https://photo.example.com", version="1")
     assert "CF-Access-Client-Id" not in links.headers("iocontacts", "iopix")
+    assert links.headers("iocontacts", "iopix", sign_in=False) == {}
     me = users.create("alex", "secret123", suite_admin=True)
     admin.set_key(me, "_suite", "cf_access_client_id", "id.access")
     admin.set_key(me, "_suite", "cf_access_client_secret", "sec")
     h = links.headers("iocontacts", "iopix")
     assert h["CF-Access-Client-Id"] == "id.access" and h["CF-Access-Client-Secret"] == "sec"
+    assert set(links.headers("iocontacts", "iopix", sign_in=False)) == {"CF-Access-Client-Id", "CF-Access-Client-Secret"}
     assert {k["name"] for k in admin.keys("_suite")} == {"cf_access_client_id", "cf_access_client_secret"}
     links.forget("iocontacts")
     assert admin.app_passwords() == []

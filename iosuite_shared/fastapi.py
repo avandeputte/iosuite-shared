@@ -780,8 +780,7 @@ class Auth:
 
         @r.get("/proxy", dependencies=[access.suite_admin])
         def api_proxy(request: Request):
-            """Sign-in at a reverse proxy (Cloudflare Access...) for the whole suite: the suite-wide values, any app's
-            own override, values an app's config.env or environment still holds that disagree, the last token seen."""
+            """Sign-in at a reverse proxy (Cloudflare Access...) for the whole suite: the values, the last token seen."""
             me(request)
             return {**proxyauth.suite_status(), "here": auth.proxy.status()}
 
@@ -792,13 +791,6 @@ class Auth:
             body = await json_body(request)
             me(request)
             call(proxyauth.save_suite, body)
-            return {**proxyauth.suite_status(), "here": auth.proxy.status()}
-
-        @r.delete("/proxy/overrides/{key}", dependencies=[access.suite_admin])
-        def api_proxy_clear(key: str, request: Request):
-            """Drop an app's own proxy settings so the suite-wide ones apply there."""
-            me(request)
-            proxyauth.clear_override(call(suite_admin.clean_app, key))
             return {**proxyauth.suite_status(), "here": auth.proxy.status()}
 
         return r

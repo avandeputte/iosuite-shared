@@ -221,7 +221,7 @@ def test_standard_settings(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP", "1")
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "elsewhere"))
     s = config.standard("iohealth", tmp_path)
-    assert s["LOG_FILE"] is None and s["BASE_URL"] == s["PUBLIC_URL"] == "https://cal.example.com" and s["MCP_FORCED"] and s["PORT"] == 47800
+    assert s["LOG_FILE"] is None and s["BASE_URL"] == s["PUBLIC_URL"] == "https://cal.example.com" and s["MCP_FORCED"] and s["PORT"] == 8650
     assert s["DATA_DIR"] == (tmp_path / "elsewhere").resolve()
     for k in ("DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_USER"):
         monkeypatch.delenv(k, raising=False)

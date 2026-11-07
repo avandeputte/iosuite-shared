@@ -1,3 +1,6 @@
+import shutil
+import subprocess
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -131,6 +134,10 @@ def test_panel_module_for_suite_admins():
     assert r.status_code == 200 and "javascript" in r.headers["content-type"]
     assert "export async function mount" in r.text
     assert signed_in(app, "ann", "secret123").get("/api/suite-admin/ui.js").status_code == 403
+    node = shutil.which("node")
+    if node:  # the module parses (a stray quote once broke the whole panel)
+        out = subprocess.run([node, "--input-type=module", "--check"], input=r.text, capture_output=True, text=True)
+        assert out.returncode == 0, out.stderr
 
 
 def test_person_in_photos(monkeypatch):

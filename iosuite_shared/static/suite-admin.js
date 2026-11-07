@@ -232,7 +232,7 @@ function people(el, ctx) {
     h('p', null, h('button', { class: 'sa-btn primary', onclick: () => editAccount(ctx, null) }, icon('add'), 'Add someone'))));
   const svc = o.users.filter((u) => u.service);
   if (svc.length) el.append(box('apps', 'Apps reading from each other',
-    h('p', { class: 'sa-muted' }, 'Each app that reads from another (ioCalendar and ioPix from ioContacts, ioContacts from ioPix, every app's Settings › Suite from ioPix for the person in photos) signs in as its own account here, with a read-only app password it made by itself. Nobody signs in with these. Revoking one of their app passwords is safe: the app makes a new one the next time it needs it.'),
+    h('p', { class: 'sa-muted' }, 'Each app that reads from another (ioCalendar and ioPix from ioContacts, ioContacts from ioPix, every app’s Settings › Suite from ioPix for the person in photos) signs in as its own account here, with a read-only app password it made by itself. Nobody signs in with these. Revoking one of their app passwords is safe: the app makes a new one the next time it needs it.'),
     h('div', { class: 'sa-scrollx' }, h('table', { class: 'sa-t' }, h('tr', null, h('th', null, 'Account'), h('th', null, 'For'), h('th', null, 'App passwords'), h('th', null, 'Last used'), h('th')),
       svc.map((u) => h('tr', null, h('td', null, h('b', null, u.name)), h('td', null, appLabel(o, u.service)),
         h('td', { class: 'sa-small' }, `${u.appPasswords}`), h('td', { class: 'sa-small' }, sinceText(u.lastSeen || u.last_login)),

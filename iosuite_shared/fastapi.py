@@ -167,6 +167,9 @@ class Auth:
         self.decorate = lambda user: user  # the app may add fields to the user dict it serves (iopix: the person tag)
         self.on_update = None  # on_update(user_id, body) after an admin changed an account: the app's own fields (iopix: the person tag)
         self.deny_exempt = ()  # path prefixes a denied proxy identity may still reach (iopix: /mcp, which signs in with its own token)
+        # what a scoped app password may reach, by path prefix (apppasswords: 'dav', the app's sync protocols); anywhere
+        # else it gets 403. An app without DAV sets it to {} so it offers no such passwords.
+        self.scope_paths = {apppasswords.DAV: ("/dav", "/.well-known/caldav", "/.well-known/carddav")}
         remember_peer()
 
     # ---- the suite's list of apps
@@ -218,6 +221,7 @@ class Auth:
         request.state.renew_cookie = renewed
         request.state.via_proxy = False
         request.state.proxy_ident = None
+        request.state.app_password_scope = ""
         peer = peer_of(request)
         if "cf-access-jwt-assertion" in request.headers and time.time() - seen.get("at", 0) > 60:
             self.proxy.note(request.headers, peer)
@@ -246,10 +250,23 @@ class Auth:
                 name, _, pw = base64.b64decode(h[6:].strip()).decode("utf-8").partition(":")
             except (ValueError, UnicodeDecodeError):
                 return None
-            return apppasswords.authenticate(name, pw, self.app)
-        if h.lower().startswith("bearer "):
-            return apppasswords.authenticate(None, h[7:].strip(), self.app)
-        return None
+            user, scope = apppasswords.authenticate_scoped(name, pw, self.app)
+        elif h.lower().startswith("bearer "):
+            user, scope = apppasswords.authenticate_scoped(None, h[7:].strip(), self.app)
+        else:
+            return None
+        request.state.app_password_scope = scope or ""
+        return user
+
+    def scope_refusal(self, request: Request):
+        """A 403 when the request signed in with a scoped app password and asks for something outside its scope."""
+        scope = getattr(request.state, "app_password_scope", "")
+        if not scope or not getattr(request.state, "user", None):
+            return None
+        if request.url.path.startswith(tuple(self.scope_paths.get(scope, ())) or ("\0",)):
+            return None
+        return JSONResponse({"detail": f"This app password is for {self.label}'s sync protocols only (CalDAV / CardDAV). "
+                                       "Make one without that limit in Settings › Apps and devices."}, status_code=403)
 
     def finish(self, request: Request, response):
         """After the route: set the session cookie when a proxy sign-in needs one here too (so the same browser stays
@@ -289,6 +306,8 @@ class Auth:
                     return await call_next(request)
                 return JSONResponse({"detail": f"The Shared ioSuite database cannot be reached ({db.error}); sign-in is unavailable until it is back."}, status_code=503)
             refused = await auth.resolve(request)
+            if refused is None:
+                refused = auth.scope_refusal(request)
             if refused is not None:
                 return refused
             path = request.url.path
@@ -484,7 +503,9 @@ class Auth:
 
         @r.get("/api/auth/app-passwords", dependencies=[access.signed_in])
         def api_app_passwords(request: Request):
-            return {"items": apppasswords.list_for(auth.current_user(request)["id"], app)}
+            """The account's app passwords here; scope '' works everywhere, 'dav' for the sync protocols only. scopes:
+            what this app offers (no 'dav' in an app without DAV)."""
+            return {"items": apppasswords.list_for(auth.current_user(request)["id"], app), "scopes": ["", *auth.scope_paths]}
 
         @r.post("/api/auth/app-passwords", dependencies=[access.signed_in])
         async def api_new_app_password(request: Request):
@@ -492,8 +513,11 @@ class Auth:
             if u.get("passwordless"):
                 raise HTTPException(403, "A one-click account cannot have app passwords")
             body = await json_body(request)
-            pw = await run_in_threadpool(apppasswords.create, u["id"], app, str(body.get("label") or "Device").strip())
-            return {"password": pw, "name": u["name"]}
+            scope = str(body.get("scope") or "")
+            if scope and scope not in auth.scope_paths:
+                raise HTTPException(400, f"Unknown scope: {scope}")
+            pw = await run_in_threadpool(apppasswords.create, u["id"], app, str(body.get("label") or "Device").strip(), scope)
+            return {"password": pw, "name": u["name"], "scope": scope}
 
         @r.delete("/api/auth/app-passwords/{pid}", dependencies=[access.signed_in])
         def api_del_app_password(pid: int, request: Request):

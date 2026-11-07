@@ -254,6 +254,19 @@ an old name (RENAME TABLE / COLUMN / INDEX: instant, every row kept; nothing on 
 library's own tables (`users` -> `ios_users`, `suite_apps` -> `ios_apps`, `k`/`v` -> `name`/`value`, `created` ->
 `created_at`...) at the first start; every app on a server has to run a version built on 0.8.0 from then on.
 
+## App password scopes
+
+Every app password has a **scope** (`ios_app_passwords.scope`): `''` (the default) reaches everything the account may;
+`'dav'` reaches the app's sync protocols only, so a password lifted from a phone cannot open the REST API, MCP or the
+web app. `Auth.scope_paths` says which path prefixes each scope may reach (by default `dav`: `/dav`,
+`/.well-known/caldav`, `/.well-known/carddav`); the middleware answers 403 anywhere else. An app without DAV sets
+`auth.scope_paths = {}`. A server outside FastAPI (ioContacts' LDAP) calls `apppasswords.authenticate_scoped(name,
+password, app)`, which returns `(user, scope)`, and checks the scope itself.
+
+- `apppasswords.create(user_id, app, label, scope="")`, `list_for(...)` items carry `scope`
+- `POST /api/auth/app-passwords {label, scope}`; `GET` lists them with `scope`, and `scopes` (what the app offers)
+- `apppasswords.set_scope(app, prefix, scope)`: for an app moving a record of its own into the column
+
 ## Edge check of app passwords (Cloudflare Worker, optional)
 
 Behind Cloudflare, a Worker on `/dav*` can turn a wrong app password away before it reaches the server. The apps keep

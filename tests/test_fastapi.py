@@ -152,3 +152,39 @@ def test_sessions_record_where_they_began_and_were_seen():
     sessions.invalidate()
     assert web.get("/api/auth/me").json()["user"] is None
     assert sessions.classify("curl/8.0") == "curl" and sessions.classify("") == "other"
+
+
+def test_scoped_app_password_reaches_only_its_paths():
+    import base64
+    from iosuite_shared import apppasswords
+    app, auth = make_app("iocalendar")
+
+    @app.api_route("/dav/{rest:path}", methods=["GET", "PROPFIND"], dependencies=[auth.access.signed_in])
+    def dav(rest: str):
+        return {"ok": True}
+
+    u = users.create("alex", "secret123", "editor", "iocalendar")
+    dav_pw = apppasswords.create(u["id"], "iocalendar", "iPhone", apppasswords.DAV)
+    full = apppasswords.create(u["id"], "iocalendar", "script")
+    c = TestClient(app, base_url="http://calendar.iothing.net")
+    basic = lambda pw: {"authorization": "Basic " + base64.b64encode(f"alex:{pw}".encode()).decode()}
+    for _ in range(2):  # the second time from the cache
+        assert c.get("/dav/calendars/alex/", headers=basic(dav_pw)).status_code == 200
+        assert c.get("/api/private", headers=basic(dav_pw)).status_code == 403
+        assert c.get("/api/private", headers={"authorization": "Bearer " + dav_pw}).status_code == 403
+        assert c.get("/api/private", headers=basic(full)).status_code == 200
+        assert c.get("/dav/x", headers=basic(full)).status_code == 200
+    assert apppasswords.authenticate_scoped("alex", dav_pw, "iocalendar")[1] == "dav"
+    assert apppasswords.authenticate_scoped("alex", "secret123", "iocalendar")[1] == ""
+    assert apppasswords.authenticate_scoped("alex", "nope", "iocalendar") == (None, None)
+    # the routes: scope in, scope out, an unknown one refused; set_scope for apps moving their own record here
+    c.post("/api/auth/login", json={"name": "alex", "password": "secret123"})
+    r = c.post("/api/auth/app-passwords", json={"label": "Mac", "scope": "dav"}).json()
+    assert r["scope"] == "dav"
+    assert c.post("/api/auth/app-passwords", json={"label": "x", "scope": "ldap"}).status_code == 400
+    listed = c.get("/api/auth/app-passwords").json()
+    assert listed["scopes"] == ["", "dav"]
+    assert {p["label"]: p["scope"] for p in listed["items"]} == {"iPhone": "dav", "script": "", "Mac": "dav"}
+    assert apppasswords.set_scope("iocalendar", full.split("-")[1], "dav") == 1
+    c.cookies.clear()
+    assert c.get("/api/private", headers=basic(full)).status_code == 403

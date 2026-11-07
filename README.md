@@ -50,6 +50,7 @@ IOSUITE_DB_NAME=iosuite  IOSUITE_DB_USER=iosuite  IOSUITE_DB_PASSWORD=…
 PUBLIC_URL=https://notes.example.com             # the address people and the other apps reach the app at
 COOKIE_DOMAIN=example.com                        # the session cookie is shared by every host under it; a LAN address gets its own
 HOST=0.0.0.0  PORT=8610                          # where the server listens (each app has its own port, below)
+INTERNAL_URL=http://192.168.1.151:8610          # where the app is inside the network; default: the host's LAN address and PORT
 ADMIN_USER=…  ADMIN_PASSWORD=…                   # the first admin, on an empty Shared ioSuite database
 TZ=Europe/Brussels  LOG_FILE=…  UPDATE_CHECK=0  MCP=1  MCP_ADMIN_TOKEN=…
 ```
@@ -205,9 +206,14 @@ one), and the middleware keeps the best address it is reached at: a host under `
 a LAN name, which beats an IP address; loopback and test hosts are never kept. `url` is the configured address, else
 that one. `register=False` keeps an app out.
 
+Each app also records where it is inside the network (`internal_url`, `internalUrl`): its `INTERNAL_URL`, else
+`suite.local_url()`, made from the host's LAN address and `PORT` (`HOST` when it names an address; none when the
+server listens on loopback only, or in a Docker container, where `INTERNAL_URL` has to say it). It is written at every
+start, for reference only: nothing links to it, and `url` stays as above.
+
 ```python
 from iosuite_shared import suite
-suite.apps()            # [{app, name, description, version, color, icon, url, configuredUrl, seenUrl, lastSeen, ...}]
+suite.apps()            # [{app, name, description, version, color, icon, url, configuredUrl, seenUrl, internalUrl, lastSeen, ...}]
 suite.url_of("iopix")   # "https://photo.iothing.net" or None
 ```
 

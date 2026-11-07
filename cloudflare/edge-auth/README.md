@@ -30,6 +30,18 @@ an app password (Settings › Apps and devices), which the Apple profile downloa
 
 ## Set it up
 
+`setup.py` in this folder does steps 1, 2 and 4 and the rate limit below through the Cloudflare API, and can be run
+again any time: it only makes what is missing (`--dry-run` says what that is). The admin token it needs is listed at
+the top of the script.
+
+```
+export CLOUDFLARE_API_TOKEN=…  CLOUDFLARE_ACCOUNT_ID=…
+python3 setup.py --host calendar.example.com=iocalendar --host contacts.example.com=iocontacts \
+    --deploy --rate-limit --app-token-file ~/.iosuite-edge-kv-token
+```
+
+Then step 3 with the ids it prints and that token file. By hand:
+
 1. **KV namespace.** In the Cloudflare dashboard go to Storage & Databases › KV › Create, name it `APP_PASSWORDS`, and
    copy its id. Or run `npx wrangler kv namespace create APP_PASSWORDS`.
 2. **API token** for the apps. Go to My Profile › API Tokens › Create Token › Custom token, with the permission

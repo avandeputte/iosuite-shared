@@ -70,7 +70,7 @@ def make_app(mcp_on=lambda: True, seen=None, **install):
 
 def test_status_is_public_and_the_same_shape_everywhere():
     app, auth, updater = make_app()
-    c = TestClient(app, base_url="http://test.iothing.net")
+    c = TestClient(app, base_url="http://test.example.com")
     s = c.get("/api/status").json()
     # no accounts yet: the install is open, so a visitor counts as signed in and admin (the suite's rule), and sees the commit
     assert s == {"ok": True, "app": "iotest", "name": "ioTest", "version": "1.2.3", "usersExist": False, "requireLogin": False, "signedIn": True,
@@ -86,7 +86,7 @@ def test_status_is_public_and_the_same_shape_everywhere():
     # sign-in required: the status still answers a visitor, with nothing about the install
     from iosuite_shared import db
     db.set_setting("require_login", "1", "iotest")
-    v = TestClient(app, base_url="http://test.iothing.net")
+    v = TestClient(app, base_url="http://test.example.com")
     s = v.get("/api/status").json()
     assert s["requireLogin"] and s["usersExist"] and s["user"] is None and "commit" not in s and "update" not in s
     assert v.get("/api/echo").status_code == 401
@@ -130,14 +130,14 @@ def test_mcp_gate_switch_sign_in_and_the_context():
     on = {"v": False}
     seen = []
     app, _, _ = make_app(mcp_on=lambda: on["v"], seen=seen)
-    c = TestClient(app, base_url="http://test.iothing.net")
+    c = TestClient(app, base_url="http://test.example.com")
     r = c.post("/mcp", json={})
     assert r.status_code == 404 and "switched off (Settings › Server)" in r.json()["detail"]
     on["v"] = True
     assert c.post("/mcp", json={}).status_code == 401  # an assistant always signs in, even before the first account exists
     c.post("/api/auth/setup", json={"name": "alex", "password": "secret123"})
     assert c.post("/mcp", json={}).status_code == 200  # the session cookie is a sign-in too
-    v = TestClient(app, base_url="http://test.iothing.net")
+    v = TestClient(app, base_url="http://test.example.com")
     r = v.post("/mcp", json={})
     assert r.status_code == 401 and "app password" in r.json()["detail"] and "Bearer" in r.headers["www-authenticate"]
     pw = c.post("/api/auth/app-passwords", json={"label": "Claude"}).json()["password"]

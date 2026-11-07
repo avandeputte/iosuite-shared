@@ -21,7 +21,7 @@ def make_app():
 
 
 def signed_in(app, name, password):
-    c = TestClient(app, base_url="http://home.iothing.net")
+    c = TestClient(app, base_url="http://home.example.com")
     assert c.post("/api/auth/login", json={"name": name, "password": password}).status_code == 200
     return c
 

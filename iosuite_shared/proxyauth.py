@@ -14,7 +14,7 @@ read from: the start page's Settings › Suite and every app's own Settings chan
 environment (AUTH_PROXY, AUTH_PROXY_HEADER, AUTH_PROXY_TRUSTED, AUTH_PROXY_CREATE, CF_ACCESS_TEAM, CF_ACCESS_AUD) and
 older per-app rows are ignored; when an app starts (`adopt`) they only fill a suite-wide setting that is still empty
 (AUD tags are added to the list), then the config.env lines are commented out and the per-app rows removed.
-CF_ACCESS_AUD holds one AUD tag or several (comma-separated): one Cloudflare Access application covering *.iothing.net
+CF_ACCESS_AUD holds one AUD tag or several (comma-separated): one Cloudflare Access application covering *.example.com
 has one, an application per host one each, and a token for any of them is accepted.
 """
 import ipaddress

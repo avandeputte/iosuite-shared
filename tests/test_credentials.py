@@ -54,7 +54,7 @@ def test_api_keys_suite_admins_only():
     assert {(k["app"], k["name"]) for k in items} == {("iosuite", "ha_token"), ("", "cf_access_client_id"), ("", "cf_access_client_secret"),
                                                      ("", "cf_kv_account_id"), ("", "cf_kv_namespace_id"), ("", "cf_kv_api_token")}
     assert signed_in(app, "ann", "secret123").get("/api/suite-admin/keys").status_code == 403
-    assert TestClient(app, base_url="http://home.iothing.net").put("/api/suite-admin/keys/iosuite/ha_token", json={"value": "x"}).status_code == 401
+    assert TestClient(app, base_url="http://home.example.com").put("/api/suite-admin/keys/iosuite/ha_token", json={"value": "x"}).status_code == 401
     r = c.put("/api/suite-admin/keys/iosuite/ha_token", json={"value": "s3cret"})
     assert r.status_code == 200 and r.json()["set"] and "s3cret" not in r.text
     assert credentials.get("iosuite", "ha_token") == "s3cret"

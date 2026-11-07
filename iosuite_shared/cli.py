@@ -1,4 +1,4 @@
-"""iosuite-shared: init | check | list | create | admin | role | password | migrate (see migrate.py) | install (see install.py) | provision (see provision.py).
+"""iosuite-shared: init | check | list | create | admin | role | password | edge | migrate (see migrate.py) | install (see install.py) | provision (see provision.py).
 
 Every app's setup.sh makes its first admin with `iosuite-shared admin NAME --app APP` (the password from ADMIN_PASSWORD,
 else asked for) and checks the Shared ioSuite database with `iosuite-shared check`; run them with the app's config.env
@@ -26,6 +26,8 @@ def main(argv=None):
     r.add_argument("name"); r.add_argument("app"); r.add_argument("role", choices=("none", "viewer", "editor", "admin"))
     pw = sub.add_parser("password", help="set an account's password")
     pw.add_argument("name"); pw.add_argument("--password", default=None)
+    e = sub.add_parser("edge", help="compare the Cloudflare KV namespace of the edge check with the app passwords (removes stale keys with --apply)")
+    e.add_argument("--apply", action="store_true")
     m = sub.add_parser("migrate", help="fold the apps' own user tables into the shared database (dry run unless --apply)")
     m.add_argument("--iopix", help="iopix's viewer database: sqlite:///path/viewer.db or mysql://user:pw@host/db")
     m.add_argument("--ionotes", help="ionotes' database: mysql://user:pw@host/db or sqlite:///path")
@@ -93,6 +95,16 @@ def main(argv=None):
             sys.exit(f"no account {a.name}")
         users.update(u["id"], password=a.password if a.password is not None else getpass.getpass("New password: "))
         print("ok")
+    elif a.cmd == "edge":
+        from iosuite_shared import edge
+        if not edge.enabled():
+            sys.exit("the edge check is off: set CF_KV_ACCOUNT_ID, CF_KV_NAMESPACE_ID and CF_KV_API_TOKEN")
+        r = edge.sync(apply=a.apply)
+        print(f"{r['keys']} key(s) at the edge, {r['passwords']} app password(s)")
+        for k in r["stale"]:
+            print(("removed " if a.apply else "stale (no such password; --apply removes it) ") + k)
+        for k in r["missing"]:
+            print(f"not at the edge yet (put there on its next use): {k}")
 
 
 if __name__ == "__main__":

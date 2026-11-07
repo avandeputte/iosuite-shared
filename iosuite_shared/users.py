@@ -187,6 +187,8 @@ def delete(user_id: int):
     r = db.one("SELECT suite_admin FROM ios_users WHERE id = %s", (user_id,))
     if r and r["suite_admin"] and db.one("SELECT count(*) AS n FROM ios_users WHERE suite_admin = 1")["n"] == 1:
         raise ValueError("That is the only suite admin; make someone else one first")
+    from iosuite_shared import apppasswords
+    apppasswords.forget_user(user_id)
     db.ex("DELETE FROM ios_users WHERE id = %s", (user_id,))
     invalidate()
 

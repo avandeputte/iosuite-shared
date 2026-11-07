@@ -1,0 +1,21 @@
+# Copy to wrangler.toml, fill in the hosts and the namespace id, then: npx wrangler deploy
+name = "iosuite-edge-auth"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# the DAV paths only: the web app, /api, /mcp, /ics and /.well-known go straight to the server as before
+routes = [
+  { pattern = "calendar.example.com/dav*", zone_name = "example.com" },
+  { pattern = "contacts.example.com/dav*", zone_name = "example.com" },
+]
+
+[[kv_namespaces]]
+binding = "APP_PASSWORDS"
+id = "your-namespace-id"          # npx wrangler kv namespace create APP_PASSWORDS
+
+[vars]
+APPS = '{"calendar.example.com": "iocalendar", "contacts.example.com": "iocontacts"}'
+MODE = "monitor"                   # "enforce" once `iosuite-shared edge` shows no password missing
+
+[observability]
+enabled = true                     # the "would block" / "blocked" lines in Workers Logs

@@ -6,7 +6,7 @@ import re
 import secrets
 import time
 
-from iosuite_shared import db, users
+from iosuite_shared import db, edge, users
 from iosuite_shared.passwords import check_password, hash_password
 
 _cache: dict = {}  # a successful check, for a minute: scrypt is slow on purpose and DAV clients send Basic on every request
@@ -17,6 +17,7 @@ def create(user_id: int, app: str, label: str) -> str:
     pw = f"{app}-{prefix}-{secrets.token_urlsafe(18)}"
     db.ex("INSERT INTO ios_app_passwords (user_id, app, label, prefix, hash, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
           (user_id, app, (label or "Device")[:128], prefix, hash_password(pw), int(time.time())))
+    edge.publish(app, prefix, pw)
     return pw
 
 
@@ -26,7 +27,15 @@ def list_for(user_id: int, app: str) -> list:
 
 
 def delete(user_id: int, pid: int):
+    gone = [(r["app"], r["prefix"]) for r in db.q("SELECT app, prefix FROM ios_app_passwords WHERE id = %s AND user_id = %s", (pid, user_id))]
     db.ex("DELETE FROM ios_app_passwords WHERE id = %s AND user_id = %s", (pid, user_id))
+    _cache.clear()
+    edge.unpublish(gone)
+
+
+def forget_user(user_id: int):
+    """Before an account is deleted (its app passwords go with it): their keys off the edge."""
+    edge.unpublish([(r["app"], r["prefix"]) for r in db.q("SELECT app, prefix FROM ios_app_passwords WHERE user_id = %s", (user_id,))])
     _cache.clear()
 
 
@@ -51,6 +60,7 @@ def authenticate(name: str | None, password: str, app: str):
                 u = users.get(r["user_id"], app)
                 if u and (not name or name.strip().lower() in (u["name"].lower(), u["email"].lower())):
                     db.ex("UPDATE ios_app_passwords SET last_used_at = %s WHERE id = %s", (int(time.time()), r["id"]))
+                    edge.publish(app, r["prefix"], password)  # made before the edge check was on, or since a restart
                     user = u
                     break
     if not user and name:

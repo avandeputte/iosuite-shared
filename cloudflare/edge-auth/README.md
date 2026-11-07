@@ -34,13 +34,16 @@ an app password (Settings › Apps and devices), which the Apple profile downloa
    copy its id. Or run `npx wrangler kv namespace create APP_PASSWORDS`.
 2. **API token** for the apps. Go to My Profile › API Tokens › Create Token › Custom token, with the permission
    *Account › Workers KV Storage › Edit* on your account only. Nothing else is needed.
-3. **The apps.** Add to `config.env` of ioCalendar **and** ioContacts, then restart them:
+3. **The apps.** Store the three values once in the Shared ioSuite database, for the whole suite: Settings › Suite ›
+   Keys and tokens on the start page, or from any app's folder:
 
    ```
-   CF_KV_ACCOUNT_ID=…        # dashboard › Account home › the account's ⋯ › Copy account ID
-   CF_KV_NAMESPACE_ID=…      # from step 1
-   CF_KV_API_TOKEN=…         # from step 2
+   .venv/bin/iosuite-shared --config . edge --account-id …  --namespace-id …  --token-file token.txt
    ```
+
+   The account id is on the dashboard's Account home (the account's ⋯ › Copy account ID), the namespace id is from
+   step 1, the token from step 2. The apps pick them up within seconds. Setting `CF_KV_ACCOUNT_ID`,
+   `CF_KV_NAMESPACE_ID` or `CF_KV_API_TOKEN` in an app's `config.env` overrides the stored value for that app.
 
 4. **The Worker.** Copy `wrangler.toml.example` to `wrangler.toml`, put in your two hosts, the zone and the namespace
    id, and run `npx wrangler deploy` in this folder. Without wrangler, create a Worker in the dashboard, paste

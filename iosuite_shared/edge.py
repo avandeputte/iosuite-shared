@@ -8,11 +8,13 @@ A SHA-256 is enough here and fast for the Worker: an app password is 144 random 
 its hash. Account passwords are never sent. The server still checks every password itself (scrypt), so a stale key
 only lets a request reach it, never in.
 
-Off unless all three are set (config.env):
+Off unless all three are set. They are the whole suite's keys in the Shared ioSuite database (Settings › Suite ›
+Keys and tokens, or `iosuite-shared edge --account-id … --namespace-id … --token-file …`), so every app has them at
+once; a variable in an app's config.env wins over the stored value:
 
-    CF_KV_ACCOUNT_ID=…      the Cloudflare account id
-    CF_KV_NAMESPACE_ID=…    the KV namespace the Worker is bound to
-    CF_KV_API_TOKEN=…       an API token with Account › Workers KV Storage › Edit
+    CF_KV_ACCOUNT_ID / cf_kv_account_id       the Cloudflare account id
+    CF_KV_NAMESPACE_ID / cf_kv_namespace_id   the KV namespace the Worker is bound to
+    CF_KV_API_TOKEN / cf_kv_api_token         an API token with Account › Workers KV Storage › Edit
 
 A password is published when it is made, and again the first time it signs in after each start of the app (the only
 moment the server holds it in clear again): passwords made before the edge check was on get there with their next
@@ -34,8 +36,31 @@ API = "https://api.cloudflare.com/client/v4"
 _published: set = set()  # keys put since the app started: put again after a restart, on first use
 
 
+KEYS = (("CF_KV_ACCOUNT_ID", "cf_kv_account_id"), ("CF_KV_NAMESPACE_ID", "cf_kv_namespace_id"), ("CF_KV_API_TOKEN", "cf_kv_api_token"))
+
+
+def _value(env_name: str, key_name: str) -> str:
+    v = config.env(env_name)
+    if v:
+        return v
+    from iosuite_shared import credentials
+    try:
+        return credentials.get("", key_name)  # cached a few seconds
+    except Exception:  # noqa: BLE001  the database is away: off for now
+        return ""
+
+
 def settings():
-    return (config.env("CF_KV_ACCOUNT_ID"), config.env("CF_KV_NAMESPACE_ID"), config.env("CF_KV_API_TOKEN"))
+    return tuple(_value(e, k) for e, k in KEYS)
+
+
+def store(account_id: str = None, namespace_id: str = None, token: str = None, by: str = None):
+    """Keep the settings in the Shared ioSuite database, as the whole suite's keys (None: leave it as it is)."""
+    from iosuite_shared import credentials, links
+    credentials.declare("", links.SUITE_KEYS)
+    for (_, k), v in zip(KEYS, (account_id, namespace_id, token)):
+        if v is not None:
+            credentials.put("", k, v, by=by)
 
 
 def enabled() -> bool:

@@ -100,3 +100,19 @@ def test_a_failed_call_never_reaches_the_request(kv, monkeypatch):
     pw = apppasswords.create(u["id"], "iocalendar", "iPhone")  # no exception
     assert apppasswords.authenticate("alex", pw, "iocalendar")
     assert f"iocalendar:{pw.split('-')[1]}" not in edge._published  # tried again on a later use
+
+
+def test_settings_from_the_shared_database(kv, monkeypatch):
+    for k in ("CF_KV_ACCOUNT_ID", "CF_KV_NAMESPACE_ID", "CF_KV_API_TOKEN"):
+        monkeypatch.delenv(k, raising=False)
+    assert not edge.enabled()
+    edge.store("acc", "ns", "tok", by="test")
+    assert edge.settings() == ("acc", "ns", "tok") and edge.enabled()
+    from iosuite_shared import credentials
+    keys = {r["name"]: r for r in credentials.listing("")}
+    assert keys["cf_kv_api_token"]["set"] and keys["cf_kv_api_token"]["env"] == "CF_KV_API_TOKEN"
+    monkeypatch.setenv("CF_KV_NAMESPACE_ID", "from-env")  # config.env wins
+    assert edge.settings()[1] == "from-env"
+    u = _alex()
+    pw = apppasswords.create(u["id"], "iocalendar", "iPhone")
+    assert f"iocalendar:{pw.split('-')[1]}" in kv

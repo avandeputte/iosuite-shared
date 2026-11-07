@@ -28,6 +28,9 @@ def main(argv=None):
     pw.add_argument("name"); pw.add_argument("--password", default=None)
     e = sub.add_parser("edge", help="compare the Cloudflare KV namespace of the edge check with the app passwords (removes stale keys with --apply)")
     e.add_argument("--apply", action="store_true")
+    e.add_argument("--account-id", default=None, help="store the Cloudflare account id in the Shared ioSuite database")
+    e.add_argument("--namespace-id", default=None, help="store the KV namespace id")
+    e.add_argument("--token-file", default=None, help="store the API token read from this file ('-': standard input)")
     m = sub.add_parser("migrate", help="fold the apps' own user tables into the shared database (dry run unless --apply)")
     m.add_argument("--iopix", help="iopix's viewer database: sqlite:///path/viewer.db or mysql://user:pw@host/db")
     m.add_argument("--ionotes", help="ionotes' database: mysql://user:pw@host/db or sqlite:///path")
@@ -97,8 +100,15 @@ def main(argv=None):
         print("ok")
     elif a.cmd == "edge":
         from iosuite_shared import edge
+        if a.account_id is not None or a.namespace_id is not None or a.token_file:
+            token = None
+            if a.token_file:
+                token = (sys.stdin.read() if a.token_file == "-" else open(a.token_file, encoding="utf-8").read()).strip()
+            edge.store(a.account_id, a.namespace_id, token, by="iosuite-shared edge")
+            print("stored in the Shared ioSuite database (the whole suite's keys)")
         if not edge.enabled():
-            sys.exit("the edge check is off: set CF_KV_ACCOUNT_ID, CF_KV_NAMESPACE_ID and CF_KV_API_TOKEN")
+            sys.exit("the edge check is off: store the account id, namespace id and token (iosuite-shared edge --help), "
+                     "or set CF_KV_ACCOUNT_ID, CF_KV_NAMESPACE_ID and CF_KV_API_TOKEN")
         r = edge.sync(apply=a.apply)
         print(f"{r['keys']} key(s) at the edge, {r['passwords']} app password(s)")
         for k in r["stale"]:

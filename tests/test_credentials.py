@@ -51,7 +51,8 @@ def test_api_keys_suite_admins_only():
     credentials.declare("iosuite", [{"name": "ha_token", "label": "Home Assistant token"}])
     c = signed_in(app, "alex", "secret123")
     items = c.get("/api/suite-admin/keys").json()["items"]
-    assert {(k["app"], k["name"]) for k in items} == {("iosuite", "ha_token"), ("", "cf_access_client_id"), ("", "cf_access_client_secret")}
+    assert {(k["app"], k["name"]) for k in items} == {("iosuite", "ha_token"), ("", "cf_access_client_id"), ("", "cf_access_client_secret"),
+                                                     ("", "cf_kv_account_id"), ("", "cf_kv_namespace_id"), ("", "cf_kv_api_token")}
     assert signed_in(app, "ann", "secret123").get("/api/suite-admin/keys").status_code == 403
     assert TestClient(app, base_url="http://home.iothing.net").put("/api/suite-admin/keys/iosuite/ha_token", json={"value": "x"}).status_code == 401
     r = c.put("/api/suite-admin/keys/iosuite/ha_token", json={"value": "s3cret"})

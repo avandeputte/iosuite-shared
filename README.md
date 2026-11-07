@@ -339,10 +339,13 @@ Access service token, set on Settings › Suite › Keys and tokens) go with eve
 
 Behind Cloudflare, a Worker on `/dav*` can turn a wrong app password away before it reaches the server. The apps keep
 a Workers KV namespace up to date with a SHA-256 of each app password (never an account password), when it is made,
-on its first use after each start, and when it or its account is deleted. It is off unless all three are set:
+on its first use after each start, and when it or its account is deleted. It is off unless all three are set. They
+are the whole suite's keys in the Shared ioSuite database (Settings › Suite › Keys and tokens), so every app picks
+them up within seconds, without a restart; a variable in an app's config.env wins:
 
 ```
-CF_KV_ACCOUNT_ID=…  CF_KV_NAMESPACE_ID=…  CF_KV_API_TOKEN=…   # token: Account › Workers KV Storage › Edit
+iosuite-shared edge --account-id … --namespace-id … --token-file token.txt   # token: Account › Workers KV Storage › Edit
+CF_KV_ACCOUNT_ID=…  CF_KV_NAMESPACE_ID=…  CF_KV_API_TOKEN=…                  # or per app, in config.env
 ```
 
 The Worker, its `wrangler.toml`, the rollout (monitor, then enforce) and a WAF rate-limit rule are in

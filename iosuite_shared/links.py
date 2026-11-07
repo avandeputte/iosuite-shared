@@ -37,6 +37,13 @@ SUITE_KEYS = [
      "hint": "for the apps reading from each other when they sit behind Cloudflare Access"},
     {"name": "cf_access_client_secret", "label": "Cloudflare Access service token: client secret",
      "hint": "goes with the client id"},
+    # the edge check of app passwords (iosuite_shared.edge, cloudflare/edge-auth/)
+    {"name": "cf_kv_account_id", "label": "Edge check: Cloudflare account id", "env": "CF_KV_ACCOUNT_ID",
+     "hint": "the account the edge-auth Worker and its KV namespace are in"},
+    {"name": "cf_kv_namespace_id", "label": "Edge check: KV namespace id", "env": "CF_KV_NAMESPACE_ID",
+     "hint": "the APP_PASSWORDS namespace the Worker is bound to"},
+    {"name": "cf_kv_api_token", "label": "Edge check: Cloudflare API token", "env": "CF_KV_API_TOKEN",
+     "hint": "Account › Workers KV Storage › Edit, nothing else"},
 ]
 _declared = False
 

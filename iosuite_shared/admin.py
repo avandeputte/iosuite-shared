@@ -199,6 +199,15 @@ def new_app_password(user_id: int, app: str, label: str, scope: str = "") -> dic
     return {"password": pw, "name": u["name"], "app": app, "scope": scope or ""}
 
 
+def set_app_password_scope(pid: int, scope: str):
+    """Change what an app password reaches: '' everything, 'dav' the app's sync protocols only."""
+    r = db.one("SELECT app, prefix FROM ios_app_passwords WHERE id = %s", (pid,))
+    if not r:
+        raise LookupError("No such app password")
+    apppasswords.set_scope(r["app"], r["prefix"], scope or "")
+    apppasswords.forget()
+
+
 def revoke_app_password(pid: int):
     r = db.one("SELECT user_id FROM ios_app_passwords WHERE id = %s", (pid,))
     if not r:

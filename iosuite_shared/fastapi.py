@@ -705,6 +705,13 @@ class Auth:
             return await run_in_threadpool(call, suite_admin.new_app_password, uid, body.get("app"), str(body.get("label") or ""),
                                            str(body.get("scope") or ""))
 
+        @r.patch("/app-passwords/{pid}", dependencies=[access.suite_admin])
+        async def api_app_password_scope(pid: int, request: Request):
+            body = await json_body(request)
+            me(request)
+            call(suite_admin.set_app_password_scope, pid, str(body.get("scope") or ""))
+            return {"ok": True}
+
         @r.delete("/app-passwords/{pid}", dependencies=[access.suite_admin])
         def api_revoke_app_password(pid: int, request: Request):
             me(request)

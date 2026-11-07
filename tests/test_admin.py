@@ -79,6 +79,11 @@ def test_app_passwords_and_forget_app():
     assert apppasswords.authenticate("ed", pw, "iocontacts")["id"] == ed["id"]
     items = admin.app_passwords()
     assert [(i["userName"], i["app"], i["label"], i["scope"]) for i in items] == [("ed", "iocontacts", "Phone", "dav")]
+    with pytest.raises(ValueError):
+        admin.set_app_password_scope(items[0]["id"], "bogus")
+    admin.set_app_password_scope(items[0]["id"], "")
+    assert admin.app_passwords()[0]["scope"] == ""
+    assert apppasswords.authenticate_scoped("ed", pw, "iocontacts")[1] == ""
     admin.revoke_app_password(items[0]["id"])
     assert admin.app_passwords() == [] and apppasswords.authenticate(None, pw, "iocontacts") is None
     users.set_role(ed["id"], "oldapp", "editor")

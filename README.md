@@ -115,6 +115,7 @@ Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, cha
 | `GET`/`DELETE /api/suite-admin/users/{id}/sessions` | its sessions; end all, or one with `?session=` |
 | `GET /api/suite-admin/app-passwords?user=&app=` | every app password (never the secret) |
 | `POST /api/suite-admin/app-passwords` | `{userId, app, label, scope}`: a new one for that account, shown once |
+| `PATCH /api/suite-admin/app-passwords/{id}` | `{scope}`: `''` everything, `dav` the app's sync protocols only |
 | `DELETE /api/suite-admin/app-passwords/{id}` | revoke one |
 | `PATCH /api/suite-admin/apps/{app}` | `{defaultRole: none/viewer/editor, requireLogin}` |
 | `DELETE /api/suite-admin/apps/{app}` | off the list (it registers again if it starts); `?data=1` also drops its roles, settings and app passwords |

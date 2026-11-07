@@ -435,3 +435,7 @@ administrator's password travels in `DB_ADMIN_PASSWORD`, never on a command line
 run), or the server named by `IOSUITE_TEST_DB=host:port:user:password` (a user that may create and drop databases).
 It uses a database `iosuite_shared_test` there, dropped and made again per test, and never a live Shared ioSuite database;
 without a test server it is skipped. The apps' suites use the same helper (`iosuite_shared.testing`).
+
+## License
+
+GPL-3.0-or-later (the GNU General Public License, version 3 or later), see [LICENSE](LICENSE).

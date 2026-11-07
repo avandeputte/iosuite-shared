@@ -13,8 +13,9 @@ Where an app is (`url` in what `apps()` answers), in this order:
 Each app also says where it is inside the network (`internal_url`, `internalUrl` in what `apps()` answers): plain
 http(s)://LAN-address:port, which works without the public domain, a reverse proxy or Cloudflare. The app's INTERNAL_URL
 names it; failing that, `local_url()` makes it from the host's LAN address and the app's PORT (not inside a Docker
-container, whose own address the network cannot reach: there INTERNAL_URL has to say it). It is recorded for
-reference only: nothing links to it (`url` stays PUBLIC_URL or the address the app is reached at).
+container, whose own address the network cannot reach: there INTERNAL_URL has to say it). Nothing links people to it
+(`url` stays PUBLIC_URL or the address the app is reached at); only the apps' own server-to-server calls use it
+(iosuite_shared.links), before the public address.
 
 A suite admin may forget an app that was uninstalled (`DELETE /api/auth/suite/{app}`); it comes back the next time it
 starts.

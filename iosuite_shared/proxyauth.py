@@ -9,11 +9,16 @@ The header is believed only from the proxy itself, never from anyone who can rea
 - otherwise: the request must come straight from one of AUTH_PROXY_TRUSTED (addresses or networks; by default this
   machine only, 127.0.0.1 and ::1), the address the proxy connects from.
 
-Settings: the environment wins (AUTH_PROXY, AUTH_PROXY_HEADER, AUTH_PROXY_TRUSTED, AUTH_PROXY_CREATE, CF_ACCESS_TEAM,
-CF_ACCESS_AUD), else what an admin saved in the Shared ioSuite database, for the app or suite-wide (one Cloudflare Access
-application covering *.iothing.net is stored once, suite-wide).
+Settings: kept once for the whole suite in the Shared ioSuite database (ios_settings, app ''), where the start page's
+Settings › Suite and every app's own Settings change them. When an app starts (`adopt`), what it still has in its
+config.env (AUTH_PROXY, AUTH_PROXY_HEADER, AUTH_PROXY_TRUSTED, AUTH_PROXY_CREATE, CF_ACCESS_TEAM, CF_ACCESS_AUD) and any
+override of its own in the database move into the suite-wide settings, and the config.env lines are commented out.
+CF_ACCESS_AUD holds one AUD tag or several (comma-separated): one Cloudflare Access application covering *.iothing.net
+has one, an application per host one each, and a token for any of them is accepted. A variable set in the app's real
+environment (a container's) still wins in that app; a value that disagrees with the suite-wide one stays where it is.
 """
 import ipaddress
+import json
 import logging
 import threading
 import time
@@ -49,10 +54,14 @@ class Proxy:
         return db.get_setting(name.lower(), "", self.app) or None
 
     def save(self, values: dict, suite_wide: bool = True):
-        """Store proxy sign-in settings (keys of KEYS; empty removes one), suite-wide by default. Values in the environment still win."""
+        """Store proxy sign-in settings (keys of KEYS; empty removes one) suite-wide, for every app (suite_wide is
+        ignored: there are no per-app values any more, see adopt). Values in the environment still win."""
         for k, v in values.items():
             if k in KEYS:
-                db.set_setting(k.lower(), str(v or "").strip(), "" if suite_wide else self.app)
+                v = str(v or "").strip()
+                v = clean_team(v) if k == "CF_ACCESS_TEAM" else ", ".join(aud_tags(v)) if k == "CF_ACCESS_AUD" else v
+                db.set_setting(k.lower(), v, "")
+                db.set_setting(k.lower(), "", self.app)
         _cache.clear()
 
     def mode(self) -> str:
@@ -77,8 +86,9 @@ class Proxy:
         return out
 
     def cf_settings(self):
-        team = (self.opt("CF_ACCESS_TEAM") or "").strip().removeprefix("https://").rstrip("/")
-        aud = (self.opt("CF_ACCESS_AUD") or "").strip()
+        """(team domain, [AUD tags]), or (None, None) unless both are set."""
+        team = clean_team(self.opt("CF_ACCESS_TEAM"))
+        aud = aud_tags(self.opt("CF_ACCESS_AUD"))
         return (team, aud) if team and aud else (None, None)
 
     def from_trusted(self, peer: str) -> bool:
@@ -203,9 +213,139 @@ class Proxy:
         """For Settings and diagnostics: how proxy sign-in is set up (no secrets)."""
         team, aud = self.cf_settings()
         return {"values": {k: (self.opt(k) or "") for k in KEYS}, "fromEnv": [k for k in KEYS if config.proxy_env(k) is not None],
+                "auds": aud or [], "conflicts": db.json_load(db.get_setting(self.app, "", ADOPT_APP), {}) or {},
                 "suiteWide": {k: db.settings_of("").get(k.lower(), "") for k in KEYS}, "appOverride": {k: db.settings_of(self.app).get(k.lower(), "") for k in KEYS},
                 "mode": self.mode(), "headers": self.headers(), "trusted": [str(n) for n in self.trusted()], "seen": dict(seen),
-                "team": team, "aud": aud, "cloudflareVerified": bool(team), "create": (self.opt("AUTH_PROXY_CREATE") or "").strip().lower() or None}
+                "team": team, "aud": ", ".join(aud or []), "cloudflareVerified": bool(team), "create": (self.opt("AUTH_PROXY_CREATE") or "").strip().lower() or None}
+
+
+# ---- the values, cleaned and compared
+def clean_team(v) -> str:
+    """A team domain as stored: no scheme, no trailing slash, lower case (myteam.cloudflareaccess.com)."""
+    return (v or "").strip().lower().removeprefix("https://").removeprefix("http://").rstrip("/")
+
+
+def aud_tags(v) -> list:
+    """The AUD tags in a CF_ACCESS_AUD value (comma- or space-separated), in order, without repeats."""
+    out = []
+    for t in str(v or "").replace(",", " ").split():
+        if t not in out:
+            out.append(t)
+    return out
+
+
+def _norm(key: str, v) -> str:
+    v = str(v or "").strip()
+    if key == "CF_ACCESS_TEAM":
+        return clean_team(v)
+    if key in ("AUTH_PROXY", "AUTH_PROXY_CREATE"):
+        return v.lower()
+    if key in ("AUTH_PROXY_HEADER", "AUTH_PROXY_TRUSTED"):
+        return ",".join(p.strip().lower() for p in v.replace(" ", ",").split(",") if p.strip())
+    return v
+
+
+def merged(key: str, suite_value, value):
+    """The suite-wide value once `value` (an app's) joins it, or None when the two disagree. AUD tags add up."""
+    if not str(value or "").strip():
+        return suite_value or ""
+    if not str(suite_value or "").strip():
+        return clean_team(value) if key == "CF_ACCESS_TEAM" else str(value).strip()
+    if key == "CF_ACCESS_AUD":
+        return ", ".join(aud_tags(f"{suite_value},{value}"))
+    return suite_value if _norm(key, suite_value) == _norm(key, value) else None
+
+
+ADOPT_APP = "_proxy_conflicts"  # ios_settings rows (app '_proxy_conflicts', name: the app): the values adopt() left in place
+
+
+def adopt(app: str) -> dict:
+    """Move this app's proxy sign-in settings into the suite-wide ones: its override in the Shared ioSuite database
+    (removed once moved) and what config.env set (commented out there once moved), then a value of the real
+    environment (only copied: it keeps winning here). A value that disagrees with the suite-wide one stays where it
+    is and is reported. Returns {moved: [...], kept: {KEY: where}}; idempotent."""
+    suite_now = db.settings_of("")
+    own = db.settings_of(app)
+    moved, kept, retire = [], {}, []
+    for key in KEYS:
+        name = key.lower()
+        sources = []
+        if own.get(name):
+            sources.append(("database", own[name]))
+        if key in config.FROM_FILE:
+            sources.append(("config.env", config.FROM_FILE[key]))
+        elif config.proxy_env(key) is not None:
+            sources.append(("environment", config.proxy_env(key)))
+        for where, value in sources:
+            cur = suite_now.get(name, "")
+            new = merged(key, cur, value)
+            if new is None:
+                kept[key] = where
+                log.warning("%s: %s in %s (%r) differs from the suite-wide value (%r): left in place; settle it in the start page's Settings › Suite",
+                            app, key, where, value, cur)
+                continue
+            if new != cur:
+                db.set_setting(name, new, "")
+                suite_now[name] = new
+            if where == "database":
+                db.set_setting(name, "", app)
+            elif where == "config.env":
+                retire.append(key)
+            if where != "environment":
+                moved.append(f"{key} ({where})")
+    if retire:
+        done = config.retire_lines(retire, f"moved to the Shared ioSuite database on {time.strftime('%Y-%m-%d')} (start page: Settings › Suite)")
+        if set(retire) - set(done):
+            log.warning("%s: could not comment out %s in config.env; the suite-wide values are used anyway", app, ", ".join(sorted(set(retire) - set(done))))
+    db.set_setting(app, json.dumps(kept) if kept else "", ADOPT_APP)
+    if moved:
+        log.info("%s: proxy sign-in settings moved to the suite-wide ones in the Shared ioSuite database: %s", app, ", ".join(moved))
+    _cache.clear()
+    return {"moved": moved, "kept": kept}
+
+
+def suite_status() -> dict:
+    """The suite-wide proxy sign-in settings, every app's overrides and the values adopt() left in an app, for the
+    start page's Settings › Suite (no secrets: none of these is one)."""
+    overrides = {}
+    for r in db.q("SELECT app, name, value FROM ios_settings WHERE app != '' AND LEFT(app, 1) != '_' AND name IN (%s)" % ",".join(["%s"] * len(KEYS)),
+                  tuple(k.lower() for k in KEYS)):
+        if r["value"]:
+            overrides.setdefault(r["app"], {})[r["name"].upper()] = r["value"]
+    left = {r["name"]: db.json_load(r["value"], {}) for r in db.q("SELECT name, value FROM ios_settings WHERE app = %s", (ADOPT_APP,))}
+    values = {k: db.settings_of("").get(k.lower(), "") for k in KEYS}
+    return {"values": values, "auds": aud_tags(values["CF_ACCESS_AUD"]), "overrides": overrides, "left": {a: v for a, v in left.items() if v},
+            "seen": dict(seen), "presets": list(PRESETS)}
+
+
+def save_suite(values: dict) -> dict:
+    """Store suite-wide values (keys of KEYS; empty removes one), checked. Raises ValueError."""
+    changes = {k: str(v or "").strip() for k, v in values.items() if k in KEYS}
+    m = changes.get("AUTH_PROXY")
+    if m is not None and m.lower() not in ("", "off", *PRESETS):
+        raise ValueError("Unknown proxy")
+    if changes.get("AUTH_PROXY_CREATE", "").lower() not in ("", "viewer", "editor", "deny"):
+        raise ValueError("Someone with no account: the sign-in screen, deny, or a viewer or editor account")
+    if "CF_ACCESS_TEAM" in changes:
+        changes["CF_ACCESS_TEAM"] = clean_team(changes["CF_ACCESS_TEAM"])
+    if "CF_ACCESS_AUD" in changes:
+        changes["CF_ACCESS_AUD"] = ", ".join(aud_tags(changes["CF_ACCESS_AUD"]))
+    cur = {k: db.settings_of("").get(k.lower(), "") for k in KEYS}
+    cur.update(changes)
+    if (cur["AUTH_PROXY"] or "").lower() == "cloudflare" and bool(cur["CF_ACCESS_TEAM"]) != bool(cur["CF_ACCESS_AUD"]):
+        raise ValueError("Cloudflare needs both the team domain and the AUD tag (or neither)")
+    for k, v in changes.items():
+        db.set_setting(k.lower(), v, "")
+    _cache.clear()
+    return suite_status()
+
+
+def clear_override(app: str, key: str = None):
+    """Remove an app's own proxy settings (one key, or all), so the suite-wide ones apply there."""
+    for k in ([key] if key else KEYS):
+        if k in KEYS:
+            db.set_setting(k.lower(), "", app)
+    _cache.clear()
 
 
 def forget_identities():
@@ -236,8 +376,8 @@ def peer_of(request) -> str:
     return request.scope.get("iothing.peer") or (request.client.host if request.client else "")
 
 
-def _cf_email(token: str, team: str, aud: str):
-    """The email in a Cloudflare Access token, once its signature, audience, issuer and expiry check out."""
+def _cf_email(token: str, team: str, aud):
+    """The email in a Cloudflare Access token, once its signature, audience (any of the AUD tags), issuer and expiry check out."""
     import jwt
     with _lock:
         if _jwks["team"] != team:

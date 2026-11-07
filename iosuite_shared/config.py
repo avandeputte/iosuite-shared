@@ -7,12 +7,15 @@ import os
 from pathlib import Path
 
 FILE_NAME = "config.env"
+FILE = None  # the config.env load_file read (Path), once it has
+FROM_FILE: dict = {}  # the variables load_file put in the environment from it: {name: value}
 
 
 def load_file(folder) -> Path:
     """Read <folder>/config.env into the environment (variables already set win), and the settings below again. Call
     it first, before the app or iosuite_shared's other modules read a setting."""
-    p = Path(folder) / FILE_NAME
+    global FILE
+    p = FILE = Path(folder) / FILE_NAME
     if p.is_file():
         for line in p.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -21,8 +24,9 @@ def load_file(folder) -> Path:
                 k, v = k.strip(), v.strip()
                 if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
                     v = v[1:-1]
-                if k:
-                    os.environ.setdefault(k, v)
+                if k and k not in os.environ:
+                    os.environ[k] = v
+                    FROM_FILE[k] = v
     _read()
     return p
 
@@ -58,6 +62,34 @@ def shared_db(key: str) -> str:
     defaults = {"HOST": env("DB_HOST", "127.0.0.1"), "PORT": env("DB_PORT", "3306"), "NAME": "iosuite", "USER": "iosuite",
                 "PASSWORD": "iosuite"}
     return env(PREFIX + key, defaults[key]) if key != "PASSWORD" else os.environ.get(PREFIX + key, defaults[key])
+
+
+def retire_lines(names, note: str) -> list:
+    """Comment out these variables' lines in config.env (each becomes `# <note>: NAME=value`) and take them out of the
+    environment, when load_file put them there. For settings that moved to the Shared ioSuite database. Returns the
+    names whose lines were commented out (none when the file cannot be written: they still leave the environment)."""
+    names = [n for n in names if n in FROM_FILE]
+    for n in names:
+        if os.environ.get(n) == FROM_FILE[n]:
+            os.environ.pop(n, None)
+        FROM_FILE.pop(n, None)
+    if not names or FILE is None or not FILE.is_file():
+        return []
+    try:
+        lines = FILE.read_text(encoding="utf-8").splitlines(keepends=True)
+        done, out = [], []
+        for line in lines:
+            k = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+            if k in names:
+                out.append(f"# {note}: {line.strip()}\n")
+                done.append(k)
+            else:
+                out.append(line)
+        if done:
+            FILE.write_text("".join(out), encoding="utf-8")
+        return sorted(set(done))
+    except OSError:
+        return []
 
 
 def proxy_env(name: str):

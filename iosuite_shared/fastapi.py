@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from iosuite_shared import admin as suite_admin, apppasswords, db, sessions, suite, users
+from iosuite_shared import admin as suite_admin, apppasswords, db, proxyauth, sessions, suite, users
 from iosuite_shared.proxyauth import Proxy, authlog, peer_of, remember_peer, seen
 
 ACCESS_ROLES = ("public", "signed_in", "editor", "admin", "suite_admin")
@@ -160,6 +160,7 @@ class Auth:
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
                                 color=color, internal_url=internal_url or suite.local_url(app)) if register else None
         self._registered, self._retry_at = False, 0.0
+        self._adopted, self._adopt_retry = False, 0.0
         self.label = app_label or app
         self.proxy = Proxy(app)
         self.access = Access(read_only, read_only_message or f"{self.label} is in read-only mode; nothing can be changed.")
@@ -205,6 +206,18 @@ class Auth:
         except Exception as e:  # noqa: BLE001
             self.log.debug("suite: %s", e)
 
+    def adopt_proxy(self) -> None:
+        """Once per start: move what config.env and this app's own rows hold of the proxy sign-in settings into the
+        suite-wide ones (proxyauth.adopt). Never fails a request."""
+        if self._adopted:
+            return
+        try:
+            proxyauth.adopt(self.app)
+            self._adopted = True
+        except Exception as e:  # noqa: BLE001
+            self.log.warning("could not move the proxy sign-in settings to the Shared ioSuite database (tried again in a minute): %s", e)
+            self._adopt_retry = time.time() + 60
+
     # ---- who is asking
     def current_user(self, request: Request):
         return getattr(request.state, "user", None)
@@ -215,6 +228,8 @@ class Auth:
         proxy let in someone who has no account and that is denied."""
         if self.suite_entry is not None:
             await run_in_threadpool(self.note, request)
+        if not self._adopted and time.time() >= self._adopt_retry:
+            await run_in_threadpool(self.adopt_proxy)
         session = request.cookies.get(sessions.COOKIE)
         request.state.origin = sessions.describe(request, self.proxy)
         user, renewed = (await run_in_threadpool(sessions.lookup, session, self.app, request.state.origin)) if session else (None, False)
@@ -734,6 +749,29 @@ class Auth:
             if key == auth.app:
                 auth._registered = False
             return {"ok": True}
+
+        @r.get("/proxy", dependencies=[access.suite_admin])
+        def api_proxy(request: Request):
+            """Sign-in at a reverse proxy (Cloudflare Access...) for the whole suite: the suite-wide values, any app's
+            own override, values an app's config.env or environment still holds that disagree, the last token seen."""
+            me(request)
+            return {**proxyauth.suite_status(), "here": auth.proxy.status()}
+
+        @r.put("/proxy", dependencies=[access.suite_admin])
+        async def api_proxy_save(request: Request):
+            """Body: any of AUTH_PROXY, AUTH_PROXY_HEADER, AUTH_PROXY_TRUSTED, AUTH_PROXY_CREATE, CF_ACCESS_TEAM,
+            CF_ACCESS_AUD (empty clears one). CF_ACCESS_AUD: one AUD tag or several, comma-separated."""
+            body = await json_body(request)
+            me(request)
+            call(proxyauth.save_suite, body)
+            return {**proxyauth.suite_status(), "here": auth.proxy.status()}
+
+        @r.delete("/proxy/overrides/{key}", dependencies=[access.suite_admin])
+        def api_proxy_clear(key: str, request: Request):
+            """Drop an app's own proxy settings so the suite-wide ones apply there."""
+            me(request)
+            proxyauth.clear_override(call(suite_admin.clean_app, key))
+            return {**proxyauth.suite_status(), "here": auth.proxy.status()}
 
         return r
 

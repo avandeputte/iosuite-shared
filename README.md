@@ -12,7 +12,7 @@ the whole suite. Signed in at `photo.iothing.net`, a person is signed in at `not
 | name, display name, email, password    | role: `none`, `viewer`, `editor` or `admin`               |
 | sessions (the `iothing_session` cookie): where each began and was last seen (address, through Cloudflare or not, web or which app, User-Agent) | settings (display preferences) and other per-user data    |
 | suite admin flag, sign-in list flag    | app passwords (for CardDAV, LDAP, MCP clients…)           |
-| proxy sign-in (Cloudflare Access…)     | optional overrides of the proxy settings, `require_login`, `default_role` |
+| proxy sign-in (Cloudflare Access…)     | `require_login`, `default_role` |
 
 A **suite admin** is admin in every app and manages accounts. An app's **admin** manages that app's settings and
 the accounts' roles there. An account without a role row in an app holds the app's `default_role` (`viewer` unless
@@ -69,9 +69,8 @@ settings and list of apps. Its default name and account are `iosuite`; `IOSUITE_
 
 Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PROXY_CREATE`, `CF_ACCESS_TEAM`,
 `CF_ACCESS_AUD`) is kept once for the whole suite in the Shared ioSuite database and read only from there; it is changed
-in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`). Values
-in an app's `config.env` or environment and older per-app values are ignored: on the app's first request they fill a
-suite-wide setting that is still empty (AUD tags are added), then the `config.env` lines are commented out.
+in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`).
+`config.env` and the environment are never read for them.
 `CF_ACCESS_AUD` takes one AUD tag or several (comma-separated): one Cloudflare Access application covering
 `*.iothing.net` is the simple setup (one AUD), an application per host works too (one AUD each).
 
@@ -311,15 +310,12 @@ Keys and tokens shows and changes them all. Values never leave the server: the p
 
 ```python
 from iosuite_shared import credentials
-credentials.declare("iosuite", [{"name": "ha_token", "label": "Home Assistant token", "hint": "...", "env": "HA_TOKEN"}],
-                    adopt=(db.get_setting, db.set_setting))   # at start; moves a value still in the app's own settings
+credentials.declare("iosuite", [{"name": "ha_token", "label": "Home Assistant token", "hint": "...", "env": "HA_TOKEN"}])  # at start
 token = os.environ.get("HA_TOKEN") or credentials.get("iosuite", "ha_token")
 credentials.put("iosuite", "ha_token", value, by=user["name"])  # '' clears it
 ```
 
-`declare(..., adopt=(get, set))` copies a value found in the app's own settings while the shared one is empty, then
-removes it there; `{"old": "<setting name>"}` on an item when the old name differs. An `env` variable that is set
-still wins inside the app; the panel shows that (`envSet`).
+An `env` variable that is set still wins inside the app; the panel shows that (`envSet`).
 
 ## App links
 

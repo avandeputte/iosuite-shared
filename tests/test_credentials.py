@@ -5,15 +5,14 @@ from iosuite_shared import admin, credentials, db, suite, users
 from tests.test_admin import make_app, signed_in
 
 
-def test_declare_adopts_from_the_apps_own_settings(monkeypatch):
-    old = {"ha_token": "abc123", "accuweather_key": ""}
-    setter = lambda k, v: old.pop(k, None) if v is None else old.__setitem__(k, v)
+def test_declare_lists_without_values(monkeypatch):
     monkeypatch.setenv("ACCUWEATHER_API_KEY", "from-env")
     items = [{"name": "ha_token", "label": "Home Assistant token", "hint": "long-lived", "env": "HA_TOKEN"},
              {"name": "accuweather_key", "label": "AccuWeather key", "env": "ACCUWEATHER_API_KEY"}]
-    assert credentials.declare("iosuite", items, adopt=(lambda k, d="": old.get(k, d), setter)) == ["ha_token"]
-    assert credentials.get("iosuite", "ha_token") == "abc123" and "ha_token" not in old
-    assert credentials.declare("iosuite", items, adopt=(lambda k, d="": old.get(k, d), setter)) == []  # once
+    credentials.declare("iosuite", items)
+    credentials.put("iosuite", "ha_token", "abc123")
+    credentials.declare("iosuite", items)  # every start: the value stays
+    assert credentials.get("iosuite", "ha_token") == "abc123"
     ls = {k["name"]: k for k in credentials.listing()}
     assert ls["ha_token"]["set"] and not ls["accuweather_key"]["set"] and ls["accuweather_key"]["envSet"]
     assert "abc123" not in str(ls)
@@ -21,15 +20,6 @@ def test_declare_adopts_from_the_apps_own_settings(monkeypatch):
     assert credentials.get("iosuite", "ha_token") == "" and len(credentials.listing("iosuite")) == 2
     with pytest.raises(ValueError):
         credentials.put("iosuite", "Bad Name", "x")
-
-
-def test_an_existing_shared_value_wins_over_the_old_one():
-    credentials.declare("iopix", [{"name": "google_maps_key", "label": "Google Maps key"}])
-    credentials.put("iopix", "google_maps_key", "new")
-    old = {"google_maps_key": "stale"}
-    credentials.declare("iopix", [{"name": "google_maps_key", "label": "Google Maps key"}],
-                        adopt=(lambda k, d="": old.get(k, d), lambda k, v: old.pop(k, None)))
-    assert credentials.get("iopix", "google_maps_key") == "new" and old == {}
 
 
 def test_admin_keys_and_forget_app():

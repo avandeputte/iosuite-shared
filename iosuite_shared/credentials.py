@@ -5,16 +5,13 @@ all from one place (Settings › Suite › Keys and tokens on the start page).
     from iosuite_shared import credentials
     credentials.declare("iosuite", [
         {"name": "ha_token", "label": "Home Assistant token", "hint": "a long-lived access token", "env": "HA_TOKEN"},
-    ], adopt=(db.get_setting, db.set_setting))    # once at start: what the app keeps; moves values from its own settings
+    ])    # once at start: what the app keeps
     token = os.environ.get("HA_TOKEN") or credentials.get("iosuite", "ha_token")
     credentials.put("iosuite", "ha_token", new_value, by=user_name)     # '' or None clears it
 
 Values are write-only from the outside: listing() never returns one, only whether it is set and when it changed.
 The app reads its own with get(). A value from the environment (`env`) still wins inside the app; the listing says
 when one is set there, so the panel can tell that the stored one is not used.
-
-`declare(..., adopt=(get, set))` is the move from the app's own settings: a value found there while the shared one is
-empty is copied over and removed from the app's own settings. It runs at every start and does nothing once moved.
 """
 import re
 import time
@@ -37,12 +34,10 @@ def _name(name) -> str:
     return name
 
 
-def declare(app: str, items, adopt=None) -> list:
+def declare(app: str, items) -> None:
     """Say which credentials the app keeps: items of {name, label, hint?, env?}. Each gets its row (an empty value
-    when it has none yet); label, hint and whether `env` is set in the environment are refreshed every start. With
-    `adopt=(get, set)`, values still in the app's own settings move here. Returns the names moved."""
+    when it has none yet); label, hint and whether `env` is set in the environment are refreshed every start."""
     import os
-    moved = []
     for it in items:
         name = _name(it["name"])
         env = str(it.get("env") or "")
@@ -51,20 +46,7 @@ def declare(app: str, items, adopt=None) -> list:
               "VALUES (%s, %s, '', %s, %s, %s, %s, NULL) "
               "ON DUPLICATE KEY UPDATE label = VALUES(label), hint = VALUES(hint), env = VALUES(env), env_set = VALUES(env_set)",
               (app, name, str(it.get("label") or name)[:128], str(it.get("hint") or "")[:255], env[:64], env_set))
-        if adopt:
-            old_get, old_set = adopt
-            key = it.get("old") or name
-            try:
-                old = old_get(key, "") or ""
-            except Exception:  # noqa: BLE001  the app's own settings are away: try again next start
-                continue
-            if old and not get(app, name):
-                put(app, name, old, by="moved from the app's settings")
-            if old and get(app, name):
-                old_set(key, None)
-                moved.append(name)
     forget()
-    return moved
 
 
 def get(app: str, name: str, default: str = "") -> str:

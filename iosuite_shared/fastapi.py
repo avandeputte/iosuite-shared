@@ -161,7 +161,6 @@ class Auth:
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
                                 color=color, internal_url=internal_url or suite.local_url(app)) if register else None
         self._registered, self._retry_at = False, 0.0
-        self._adopted, self._adopt_retry = False, 0.0
         self.label = app_label or app
         self.proxy = Proxy(app)
         self.access = Access(read_only, read_only_message or f"{self.label} is in read-only mode; nothing can be changed.")
@@ -208,18 +207,6 @@ class Auth:
         except Exception as e:  # noqa: BLE001
             self.log.debug("suite: %s", e)
 
-    def adopt_proxy(self) -> None:
-        """Once per start: move what config.env and this app's own rows hold of the proxy sign-in settings into the
-        suite-wide ones (proxyauth.adopt). Never fails a request."""
-        if self._adopted:
-            return
-        try:
-            proxyauth.adopt(self.app)
-            self._adopted = True
-        except Exception as e:  # noqa: BLE001
-            self.log.warning("could not move the proxy sign-in settings to the Shared ioSuite database (tried again in a minute): %s", e)
-            self._adopt_retry = time.time() + 60
-
     # ---- who is asking
     def current_user(self, request: Request):
         return getattr(request.state, "user", None)
@@ -230,8 +217,6 @@ class Auth:
         proxy let in someone who has no account and that is denied."""
         if self.suite_entry is not None:
             await run_in_threadpool(self.note, request)
-        if not self._adopted and time.time() >= self._adopt_retry:
-            await run_in_threadpool(self.adopt_proxy)
         session = request.cookies.get(sessions.COOKIE)
         request.state.origin = sessions.describe(request, self.proxy)
         user, renewed = (await run_in_threadpool(sessions.lookup, session, self.app, request.state.origin)) if session else (None, False)
@@ -553,9 +538,8 @@ class Auth:
 
         @r.post("/api/auth/proxy", dependencies=[access.admin])
         async def api_proxy_save(request: Request):
-            """{AUTH_PROXY, ..., suiteWide: true} : suite-wide by default (one Cloudflare Access application for every app); false: this app only."""
-            body = await json_body(request)
-            proxy.save(body, suite_wide=bool(body.get("suiteWide", True)))
+            """{AUTH_PROXY, ...}: suite-wide, for every app."""
+            proxy.save(await json_body(request))
             return proxy.status()
 
         @r.get("/api/auth/suite", dependencies=[access.signed_in])

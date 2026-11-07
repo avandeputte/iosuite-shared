@@ -99,6 +99,8 @@ def standard(app: str, app_dir, log_name: str = None) -> dict:
       LOG_FILE              LOG_FILE, else DATA_DIR/<app>.log; LOG_FILE= with nothing after it: None (no file)
       HOST, PORT            where the server listens: 0.0.0.0 and the app's own default port (suite.PORTS)
       PUBLIC_URL            the address people and the other apps reach the app at; empty: the one it is reached at
+      INTERNAL_URL          where the app is inside the network (http://192.168.1.151:8630); empty: the host's LAN
+                            address and PORT (suite.local_url; inside a Docker container nothing unless it is set)
       BASE_URL              PUBLIC_URL, else http://localhost:PORT (the links in MCP results)
       FORWARDED_ALLOW_IPS   the addresses that may tell the server the visitor's address and scheme (X-Forwarded-*): * by default
       TLS_CERT_FILE, TLS_KEY_FILE   HTTPS served directly instead of behind a reverse proxy: both files
@@ -115,7 +117,8 @@ def standard(app: str, app_dir, log_name: str = None) -> dict:
     public_url = env("PUBLIC_URL").rstrip("/")
     log_file = Path(env("LOG_FILE", str(data_dir / f"{log_name or app}.log"))).expanduser().resolve() if os.environ.get("LOG_FILE", "x") else None
     return {"APP_DIR": app_dir, "DATA_DIR": data_dir, "STATIC_DIR": app_dir / "static", "LOG_FILE": log_file,
-            "HOST": env("HOST", "0.0.0.0"), "PORT": port, "PUBLIC_URL": public_url, "BASE_URL": public_url or f"http://localhost:{port}",
+            "HOST": env("HOST", "0.0.0.0"), "PORT": port, "PUBLIC_URL": public_url,
+            "INTERNAL_URL": env("INTERNAL_URL").rstrip("/"), "BASE_URL": public_url or f"http://localhost:{port}",
             "FORWARDED_ALLOW_IPS": env("FORWARDED_ALLOW_IPS", "*"), "TLS_CERT_FILE": env("TLS_CERT_FILE"), "TLS_KEY_FILE": env("TLS_KEY_FILE"),
             "MCP_FORCED": env_flag("MCP"), "ADMIN_USER": ADMIN_USER, "ADMIN_PASSWORD": ADMIN_PASSWORD}
 

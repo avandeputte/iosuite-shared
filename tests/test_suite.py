@@ -118,3 +118,51 @@ def test_an_app_with_its_own_middleware_registers_through_resolve():
     TestClient(app, base_url="http://192.168.1.89:47800").get("/x")
     r = suite.get("iohealth")
     assert r["version"] == "3.0" and r["url"] == "http://192.168.1.89:47800"
+
+
+def test_internal_url_is_recorded_and_never_the_link():
+    suite.register("iosuite", "ioSuite", url="https://home.example.com", internal_url="http://192.168.1.151:8630/")
+    r = suite.get("iosuite")
+    assert r["internalUrl"] == "http://192.168.1.151:8630" and r["url"] == "https://home.example.com"
+    suite.register("iosuite", "ioSuite", internal_url="http://192.168.1.151:8630")
+    r = suite.get("iosuite")
+    assert r["url"] is None and r["internalUrl"] == "http://192.168.1.151:8630"
+    suite.register("iosuite", "ioSuite")
+    assert suite.get("iosuite")["internalUrl"] is None
+
+
+def test_local_url(monkeypatch):
+    for k in ("INTERNAL_URL", "HOST", "PORT", "TLS_CERT_FILE", "TLS_KEY_FILE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(suite, "_lan_ip", lambda: "192.168.1.151")
+    monkeypatch.setattr(suite, "in_container", lambda: False)
+    assert suite.local_url("iosuite") == "http://192.168.1.151:8630"
+    monkeypatch.setenv("PORT", "9000")
+    assert suite.local_url("iosuite") == "http://192.168.1.151:9000"
+    monkeypatch.setenv("HOST", "127.0.0.1")
+    assert suite.local_url("iosuite") is None  # behind a reverse proxy on the same host
+    monkeypatch.setenv("HOST", "10.0.0.7")
+    assert suite.local_url("iosuite") == "http://10.0.0.7:9000"
+    monkeypatch.setenv("HOST", "::")
+    monkeypatch.setattr(suite, "in_container", lambda: True)
+    assert suite.local_url("iosuite") is None  # a container's own address is no use
+    monkeypatch.setenv("INTERNAL_URL", "http://192.168.1.20:8630/")
+    assert suite.local_url("iosuite") == "http://192.168.1.20:8630"
+    monkeypatch.delenv("INTERNAL_URL")
+    monkeypatch.setattr(suite, "in_container", lambda: False)
+    monkeypatch.setattr(suite, "_lan_ip", lambda: "fd00::5")
+    monkeypatch.setenv("TLS_CERT_FILE", "/c"); monkeypatch.setenv("TLS_KEY_FILE", "/k")
+    assert suite.local_url("iosuite") == "https://[fd00::5]:9000"
+
+
+def test_auth_registers_the_internal_url(monkeypatch):
+    monkeypatch.setenv("INTERNAL_URL", "http://192.168.1.151:8630")
+    suite.invalidate()
+    app, _ = make_app("iosuite", label="ioSuite")
+    TestClient(app, base_url="http://testserver").get("/api/x")
+    assert suite.get("iosuite")["internalUrl"] == "http://192.168.1.151:8630"
+    monkeypatch.setenv("INTERNAL_URL", "not an address")
+    app, _ = make_app("iocalendar", label="ioCalendar", public_url="https://cal.example.com")
+    TestClient(app, base_url="http://testserver").get("/api/x")
+    r = suite.get("iocalendar")
+    assert r["internalUrl"] is None and r["url"] == "https://cal.example.com"

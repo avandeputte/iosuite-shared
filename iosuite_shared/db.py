@@ -98,7 +98,8 @@ SCHEMA = [
         PRIMARY KEY (app, name)
     )""",
     # the suite's apps, each written by the app itself when it starts (iosuite_shared.suite): what it is called, its
-    # version, and where it is (the address its configuration names, else the best one it was reached at), so the start
+    # version, and where it is (the address its configuration names, else the best one it was reached at; and inside the
+    # network: its LAN address and port), so the start
     # page and the others link to it without anybody typing an address
     """CREATE TABLE IF NOT EXISTS ios_apps (
         app VARCHAR(32) PRIMARY KEY,
@@ -109,6 +110,7 @@ SCHEMA = [
         icon VARCHAR(512) NULL,
         configured_url VARCHAR(512) NULL,
         seen_url VARCHAR(512) NULL,
+        internal_url VARCHAR(512) NULL,
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL,
         last_seen_at BIGINT NULL
@@ -140,6 +142,7 @@ UPGRADES = [
     "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR(255) NULL",
     "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS last_seen_at BIGINT NULL",
     "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS last_ip VARCHAR(64) NULL",
+    "ALTER TABLE ios_apps ADD COLUMN IF NOT EXISTS internal_url VARCHAR(512) NULL AFTER seen_url",
 ]
 
 

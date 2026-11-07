@@ -150,13 +150,14 @@ class BodyCap:
 class Auth:
     def __init__(self, app: str, read_only=None, read_only_message: str = None, app_label: str = None, basic_realm: str = None,
                  version: str = None, public_url: str = None, description: str = None, color: str = None,
-                 register: bool = True):
+                 register: bool = True, internal_url: str = None):
         """version, public_url (the app's PUBLIC_URL; empty: the address it is reached at), description and color (the
-        icon is suite.ICON, the same path in every app) go into the suite's list of apps (iosuite_shared.suite) when the app first reaches the Shared ioSuite database; register=False
+        icon is suite.ICON, the same path in every app) and internal_url (where it is inside the network; None:
+        suite.local_url(), from INTERNAL_URL or the LAN address and PORT) go into the suite's list of apps (iosuite_shared.suite) when the app first reaches the Shared ioSuite database; register=False
         keeps the app out of it."""
         self.app = app
         self.suite_entry = dict(name=app_label or app, url=public_url or None, version=version, description=description,
-                                color=color) if register else None
+                                color=color, internal_url=internal_url or suite.local_url(app)) if register else None
         self._registered, self._retry_at = False, 0.0
         self.label = app_label or app
         self.proxy = Proxy(app)
@@ -176,9 +177,15 @@ class Auth:
         try:
             suite.register(self.app, **self.suite_entry)
             self._registered = True
-        except ValueError as e:  # a PUBLIC_URL that is not an address: registered without it
+        except ValueError as e:  # a PUBLIC_URL or INTERNAL_URL that is not an address: registered without it
             self.log.warning("suite registration: %s; registering without the address", e)
-            suite.register(self.app, **{**self.suite_entry, "url": None})
+            entry = dict(self.suite_entry)
+            for k in ("url", "internal_url"):
+                try:
+                    suite.clean_url(entry[k])
+                except ValueError:
+                    entry[k] = None
+            suite.register(self.app, **entry)
             self._registered = True
         except Exception as e:  # noqa: BLE001 - the table is the suite's convenience, never a reason to fail
             self.log.warning("could not register %s in the suite's list of apps (tried again in a minute): %s", self.app, e)

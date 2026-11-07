@@ -101,14 +101,14 @@ def auth_env(name: str) -> dict:
 
 
 # ---- what every app's test suite does the same way
-SHARED_TABLES = ("ios_user_roles", "ios_user_data", "ios_app_passwords", "ios_sessions", "ios_users", "ios_settings", "ios_apps")
+SHARED_TABLES = ("ios_user_roles", "ios_user_data", "ios_app_passwords", "ios_sessions", "ios_users", "ios_settings", "ios_apps", "ios_credentials")
 
 
 def clean_shared_tables(auth=None) -> None:
     """Empty the Shared ioSuite database between two tests and forget every cache: accounts, roles, sessions, app
-    passwords, settings and the list of apps (the first account is #1 again). `auth` (the app's Auth) registers again on
+    passwords, settings, keys and tokens and the list of apps (the first account is #1 again). `auth` (the app's Auth) registers again on
     the next request."""
-    from iosuite_shared import apppasswords, db, proxyauth, sessions, suite, users
+    from iosuite_shared import apppasswords, credentials, db, proxyauth, sessions, suite, users
     users.init()
     for t in SHARED_TABLES:
         db.ex(f"DELETE FROM {t}")
@@ -119,6 +119,7 @@ def clean_shared_tables(auth=None) -> None:
     sessions.invalidate()
     suite.invalidate()
     apppasswords.forget()
+    credentials.forget()
     proxyauth.forget_identities()
     if auth is not None:
         auth._registered = False

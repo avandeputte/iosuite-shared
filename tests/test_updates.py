@@ -20,7 +20,6 @@ def fresh_db():
 
 def make_updater(tmp_path, monkeypatch, version="1.2.0", **kw):
     monkeypatch.delenv("UPDATE_CHECK", raising=False)
-    monkeypatch.delenv("MCP_ADMIN_TOKEN", raising=False)
     monkeypatch.delenv("INVOCATION_ID", raising=False)
     store = {}
     u = updates.Updater("iotest", version, tmp_path, repo="someone/iotest", branch="main", settings=(store.get, store.__setitem__), **kw)
@@ -134,20 +133,6 @@ def test_run_update_script_and_result(tmp_path, monkeypatch):
     assert u.status()["docker"] and not u.can_run()
 
 
-def test_admin_token(tmp_path, monkeypatch):
-    u, store = make_updater(tmp_path, monkeypatch)
-    t = u.admin_token()
-    assert len(t) > 20 and u.admin_token() == t and store["mcp_admin_token"] == t
-    assert u.token_ok(t) and not u.token_ok("x") and not u.token_ok("")
-    t2 = u.regenerate_token()
-    assert t2 != t and u.admin_token() == t2
-    monkeypatch.setenv("MCP_ADMIN_TOKEN", "fixed-token")
-    fixed = updates.Updater("iotest", "1", tmp_path, settings=(store.get, store.__setitem__))
-    assert fixed.admin_token() == "fixed-token" and fixed.token_env
-    with pytest.raises(ValueError):
-        fixed.regenerate_token()
-
-
 def test_log_tail(tmp_path):
     missing = updates.tail(tmp_path / "none.log")
     assert missing["lines"] == [] and "no log file" in missing["note"]
@@ -230,10 +215,7 @@ def test_server_router(tmp_path, monkeypatch):
         time.sleep(0.05)
     assert c.get("/api/server").json()["lastUpdate"]["ok"]
 
-    t = c.post("/api/server", json={"action": "token"}).json()
-    assert t["token"] == u.admin_token() and t["fromEnv"] is False
-    t2 = c.post("/api/server", json={"action": "regenerate_token"}).json()["token"]
-    assert t2 != t["token"] and u.admin_token() == t2
+    assert c.post("/api/server", json={"action": "token"}).status_code == 400  # the old MCP admin token is gone
 
     assert c.post("/api/server", json={"action": "restart"}).json() == {"ok": True} and restarted == [0.5]
 

@@ -4,7 +4,9 @@ clients, HTTP Basic). Shown once, revocable. The form is <app>-<8 hex>-<secret>,
 Scope: what a password may reach. '' (the default) is everything the account may; DAV ('dav') is the app's sync
 protocols only (CalDAV / CardDAV, and LDAP in ioContacts), the kind an Apple profile puts on a phone, so a password
 lifted from a device cannot reach the REST API, MCP or the web app. Auth enforces it by path (Auth.scope_paths); a
-server of its own (LDAP) asks authenticate_scoped and checks the scope itself.
+server of its own (LDAP) asks authenticate_scoped and checks the scope itself. READ ('read') may only read the app's
+REST API (GET and HEAD under /api/): what the apps' own service accounts get to read from each other
+(iosuite_shared.links).
 """
 import hashlib
 import re
@@ -18,7 +20,8 @@ _cache: dict = {}  # a successful check, for a minute: scrypt is slow on purpose
 
 
 DAV = "dav"
-SCOPES = ("", DAV)
+READ = "read"
+SCOPES = ("", DAV, READ)
 
 
 def create(user_id: int, app: str, label: str, scope: str = "") -> str:

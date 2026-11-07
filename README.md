@@ -52,7 +52,7 @@ COOKIE_DOMAIN=example.com                        # the session cookie is shared 
 HOST=0.0.0.0  PORT=8610                          # where the server listens (each app has its own port, below)
 INTERNAL_URL=http://192.168.1.151:8610          # where the app is inside the network; default: the host's LAN address and PORT
 ADMIN_USER=…  ADMIN_PASSWORD=…                   # the first admin, on an empty Shared ioSuite database
-TZ=Europe/Brussels  LOG_FILE=…  UPDATE_CHECK=0  MCP=1  MCP_ADMIN_TOKEN=…
+TZ=Europe/Brussels  LOG_FILE=…  UPDATE_CHECK=0  MCP=1
 ```
 
 `COOKIE_NAME` (default `iothing_session`) and `SESSION_DAYS` (30) rarely need changing. On/off switches take
@@ -122,7 +122,10 @@ Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, cha
 | `PATCH /api/suite-admin/app-passwords/{id}` | `{scope}`: `''` everything, `dav` the app's sync protocols only |
 | `DELETE /api/suite-admin/app-passwords/{id}` | revoke one |
 | `PATCH /api/suite-admin/apps/{app}` | `{defaultRole: none/viewer/editor, requireLogin}` |
-| `DELETE /api/suite-admin/apps/{app}` | off the list (it registers again if it starts); `?data=1` also drops its roles, settings and app passwords |
+| `DELETE /api/suite-admin/apps/{app}` | off the list (it registers again if it starts); `?data=1` also drops its roles, settings, app passwords and keys |
+| `GET /api/suite-admin/keys?app=` | every app's keys and tokens (`iosuite_shared.credentials`), never the value: `{app ('' : the whole suite), appName, name, label, hint, set, env, envSet, updated, updatedBy}` |
+| `PUT /api/suite-admin/keys/{app}/{name}` | `{value}`: replace it (`''` clears it); `_suite` for the whole suite's keys |
+| `DELETE /api/suite-admin/keys/{app}/{name}` | clear it |
 
 The usual rules hold: a one-click account is a viewer at most and has no app passwords, the last suite admin stays, and
 the signed-in admin cannot delete their own account, drop their own suite admin or remove their own password here.
@@ -170,7 +173,7 @@ nobody is signed in; `shared_mcp.set_enabled(db.set_setting, on, forced)` saves 
 ## Updates, restart and the server log
 
 Every app updates itself the same way, from `iosuite_shared.updates`: the installed commit, a daily check of GitHub
-for a newer version, the app's own `update.sh`, a restart, the MCP admin token, and the tail of the server log.
+for a newer version, the app's own `update.sh`, a restart, and the tail of the server log.
 `Auth.server_router` serves it all at the same addresses in every app (admins only), so the Maintenance ›
 Updates and logs page is the same page everywhere.
 
@@ -189,7 +192,6 @@ app.include_router(auth.server_router(updater, log_file=LOG_FILE,
 | `GET /api/server` | `{version, installed, docker, canRun, repo, branch, check, progress, lastUpdate, autoCheck, autoCheckLocked}` + `info()` |
 | `POST /api/server {action: check}` | asks GitHub; the answer is the check `{status: current / update / error, remoteVersion, ...}` |
 | `POST /api/server {action: update, ref?}` | starts `update.sh` (409 when it cannot run here: Docker, no .venv, not writable) |
-| `POST /api/server {action: token / regenerate_token}` | the MCP admin token |
 | `POST /api/server {action: restart}` | ends the process; systemd, launchd or Docker starts it again |
 | `POST /api/server {autoCheck: bool, ...}` | the daily-check switch; other keys go to `apply(body)` |
 | `GET /api/log?lines&level&contains&requests` | the tail of `log_file` (`level`: any, warning, error, auth) |
@@ -197,9 +199,8 @@ app.include_router(auth.server_router(updater, log_file=LOG_FILE,
 
 `update.sh` gets `<APP>_RESULT`, `<APP>_REPO`, `<APP>_BRANCH` and `<APP>_REF` in its environment (`IOCALENDAR_RESULT`…)
 and writes `ok: …` or `error: …` to the result file before the restart. `<APP>_REPO` and `<APP>_BRANCH` in the app's
-environment change what is followed; `UPDATE_CHECK=0` locks the daily check off; `MCP_ADMIN_TOKEN` fixes the token.
-`updater.available()` gives the banner what it needs after a check found a newer version; `updater.token_ok(given)`
-checks the admin token (the one `update.sh` sends when it is run from a container's shell).
+environment change what is followed; `UPDATE_CHECK=0` locks the daily check off.
+`updater.available()` gives the banner what it needs after a check found a newer version.
 
 Every app's `update.sh` is the same script, rendered from `templates/update.sh`; only the block "the app" differs
 (name, label, repository, the `server` subfolder for ioHealth, the files an installed copy gets, optional package
@@ -292,6 +293,46 @@ password, app)`, which returns `(user, scope)`, and checks the scope itself.
 - `apppasswords.create(user_id, app, label, scope="")`, `list_for(...)` items carry `scope`
 - `POST /api/auth/app-passwords {label, scope}`; `GET` lists them with `scope`, and `scopes` (what the app offers)
 - `apppasswords.set_scope(app, prefix, scope)`: for an app moving a record of its own into the column
+
+`'read'` (`apppasswords.READ`) may only read: GET and HEAD under `/api/`, in every app the same (not MCP, not DAV, no
+writes). It is what the apps' own service accounts get (see App links below).
+
+## Keys and tokens
+
+Every credential an app keeps for something outside the suite (the start page's Home Assistant token and AccuWeather
+key, ioPix's Google Maps keys) lives in `ios_credentials`, one row per key the app declares, so Settings › Suite ›
+Keys and tokens shows and changes them all. Values never leave the server: the panel says whether one is set.
+
+```python
+from iosuite_shared import credentials
+credentials.declare("iosuite", [{"name": "ha_token", "label": "Home Assistant token", "hint": "...", "env": "HA_TOKEN"}],
+                    adopt=(db.get_setting, db.set_setting))   # at start; moves a value still in the app's own settings
+token = os.environ.get("HA_TOKEN") or credentials.get("iosuite", "ha_token")
+credentials.put("iosuite", "ha_token", value, by=user["name"])  # '' clears it
+```
+
+`declare(..., adopt=(get, set))` copies a value found in the app's own settings while the shared one is empty, then
+removes it there; `{"old": "<setting name>"}` on an item when the old name differs. An `env` variable that is set
+still wins inside the app; the panel shows that (`envSet`).
+
+## App links
+
+One app reading from another needs no setup (`iosuite_shared.links`): the other app is found in the suite's list
+(its public address; the internal one is never used), and the reader signs in as its own **service account**
+(`users.service_account(app)`: `<app>-app`, on no sign-in screen, no password anyone knows, viewer in the other app)
+with an app password of the other app with scope `read`. Both are made on first use; the password is kept in
+`ios_credentials` (hidden from the keys list), and made again when the other app answers 401 (revoked on the panel).
+
+```python
+from iosuite_shared import links
+if links.available("iocontacts"):
+    data = links.json("iocalendar", "iocontacts", "/api/contacts?q=ann")   # or links.get(...): the urllib response
+links.url("iocontacts")                                                    # for links people click
+```
+
+Behind Cloudflare Access, the whole suite's keys `cf_access_client_id` / `cf_access_client_secret` (a Cloudflare
+Access service token, set on Settings › Suite › Keys and tokens) go with every request. Service accounts are not in
+`users.list_users()` (pass `services=True`), do not count for the first-run setup, and cannot sign in with a password.
 
 ## Edge check of app passwords (Cloudflare Worker, optional)
 

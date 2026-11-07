@@ -139,7 +139,7 @@ def standard(app: str, app_dir, log_name: str = None) -> dict:
       MCP_FORCED            MCP=1: the MCP endpoint is on whatever the setting says
       ADMIN_USER, ADMIN_PASSWORD    the first admin account, created on a first start with no accounts (containers, installers)
 
-    IOSUITE_DB_* (this module), <APP>_REPO, <APP>_BRANCH, UPDATE_CHECK and MCP_ADMIN_TOKEN (iosuite_shared.updates) are
+    IOSUITE_DB_* (this module), <APP>_REPO, <APP>_BRANCH and UPDATE_CHECK (iosuite_shared.updates) are
     read where they are used."""
     from iosuite_shared import suite
     app_dir = Path(app_dir).resolve()

@@ -1,7 +1,8 @@
 """Suite administration: everything in the Shared ioSuite database, seen and changed from one place by a suite admin.
 
-Accounts (with their role in every app), app passwords of every account in every app, sessions, and the suite's apps
-with the per-app access settings (default_role, require_login). `Auth.admin_router()` serves it at /api/suite-admin/*
+Accounts (with their role in every app), app passwords of every account in every app, sessions, the keys and tokens
+every app keeps (iosuite_shared.credentials; never their values), and the suite's apps with the per-app access settings
+(default_role, require_login). `Auth.admin_router()` serves it at /api/suite-admin/*
 (suite admins only); the start page's Settings › Suite is its screen.
 
 The apps are the registered ones (ios_apps) plus any app key that only shows up in roles, settings or app passwords
@@ -10,7 +11,7 @@ The apps are the registered ones (ios_apps) plus any app key that only shows up 
 import re
 import time
 
-from iosuite_shared import apppasswords, db, sessions, suite, users
+from iosuite_shared import apppasswords, credentials, db, sessions, suite, users
 
 APP_KEY = re.compile(r"^[a-z0-9_-]{1,32}$")
 DEFAULT_ROLES = ("none", "viewer", "editor")  # what an app gives an account without a role there ("admin" by default is never wanted)
@@ -38,10 +39,11 @@ def apps() -> list:
     reg = {a["app"]: a for a in suite.apps()}
     keys = set(reg)
     for sql in ("SELECT DISTINCT app FROM ios_user_roles", "SELECT DISTINCT app FROM ios_app_passwords",
-                "SELECT DISTINCT app FROM ios_settings WHERE app != '' AND LEFT(app, 1) != '_'"):
+                "SELECT DISTINCT app FROM ios_settings WHERE app != '' AND LEFT(app, 1) != '_'", "SELECT DISTINCT app FROM ios_credentials WHERE app != ''"):
         keys |= {r["app"] for r in db.q(sql)}
     roles = {r["app"]: r["n"] for r in db.q("SELECT app, count(*) AS n FROM ios_user_roles GROUP BY app")}
     pws = {r["app"]: r["n"] for r in db.q("SELECT app, count(*) AS n FROM ios_app_passwords GROUP BY app")}
+    creds = {r["app"]: r["n"] for r in db.q("SELECT app, count(*) AS n FROM ios_credentials WHERE name NOT LIKE 'link\\_%' GROUP BY app")}
     out = []
     for k in keys:
         a = dict(reg.get(k) or {"app": k, "name": k, "description": None, "version": None, "color": None, "icon": None, "url": None,
@@ -49,7 +51,7 @@ def apps() -> list:
         a["registered"] = k in reg
         a["defaultRole"] = users.default_role(k)
         a["requireLogin"] = db.get_setting("require_login", "0", k) == "1"
-        a["roles"], a["appPasswords"] = roles.get(k, 0), pws.get(k, 0)
+        a["roles"], a["appPasswords"], a["credentials"] = roles.get(k, 0), pws.get(k, 0), creds.get(k, 0)
         out.append(a)
     return sorted(out, key=lambda a: (not a["registered"], (a["name"] or a["app"]).lower(), a["app"]))
 
@@ -68,8 +70,8 @@ def set_app(app: str, default_role=None, require_login=None) -> dict:
 
 
 def forget_app(app: str, data: bool = False) -> bool:
-    """Take an app off the registry; with data, also its roles, its access settings and its app passwords (an app that
-    was uninstalled for good). It registers again if it starts."""
+    """Take an app off the registry; with data, also its roles, its access settings, its app passwords and its keys and
+    tokens (an app that was uninstalled for good). It registers again if it starts."""
     app = clean_app(app)
     gone = suite.forget(app)
     if data:
@@ -77,6 +79,7 @@ def forget_app(app: str, data: bool = False) -> bool:
             apppasswords.delete(uid, pid)
         gone = (db.ex("DELETE FROM ios_user_roles WHERE app = %s", (app,)) > 0) or gone
         gone = (db.ex("DELETE FROM ios_settings WHERE app = %s", (app,)) > 0) or gone
+        gone = (credentials.remove(app) > 0) or gone
         _forget_caches()
     return gone
 
@@ -96,7 +99,7 @@ def accounts() -> list:
         roles.setdefault(r["user_id"], {})[r["app"]] = r["role"]
     defaults = {k: users.default_role(k) for k in keys}
     out = []
-    for u in users.list_users():
+    for u in users.list_users(services=True):
         mine = roles.get(u["id"], {})
         eff = {}
         for k in keys:
@@ -213,6 +216,38 @@ def revoke_app_password(pid: int):
     if not r:
         raise LookupError("No such app password")
     apppasswords.delete(r["user_id"], pid)
+
+
+# ---- keys and tokens
+SUITE = "_suite"  # the whole suite's keys (app '') in the addresses: /api/suite-admin/keys/_suite/<name>
+
+
+def _suite_keys():
+    from iosuite_shared import links
+    credentials.declare("", links.SUITE_KEYS)  # the whole suite's: listed before any app needed them
+
+
+def _key_app(app) -> str:
+    return "" if app in ("", SUITE) else clean_app(app)
+
+
+def keys(app: str = None) -> list:
+    """Every key and token the apps keep (never the value): see credentials.listing. The whole suite's have app ''."""
+    _suite_keys()
+    return credentials.listing(None if app is None else _key_app(app))
+
+
+def set_key(me, app: str, name: str, value) -> dict:
+    """Replace a key's value ('' or None clears it). Only keys an app declared can be set here (not the app
+    passwords iosuite_shared.links keeps: revoke those as app passwords)."""
+    app, name = _key_app(app), str(name or "")
+    _suite_keys()
+    if name.startswith("link_") or not db.one("SELECT 1 AS x FROM ios_credentials WHERE app = %s AND name = %s", (app, name)):
+        raise LookupError("No such key")
+    if value is not None and not isinstance(value, str):
+        raise ValueError("The value is text")
+    credentials.put(app, name, value, by=(me or {}).get("name"))
+    return next(k for k in credentials.listing(app) if k["name"] == name)
 
 
 # ---- sessions

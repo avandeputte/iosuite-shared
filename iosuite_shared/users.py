@@ -17,7 +17,7 @@ from iosuite_shared.passwords import burn, check_password, hash_password, needs_
 ROLES = ("none", "viewer", "editor", "admin")
 APP_ROLES = ("viewer", "editor", "admin")  # what an admin picks for an account in an app ("none" takes the app away)
 RANK = {"none": 0, "viewer": 1, "editor": 2, "admin": 3}
-COLS = "id, name, display_name, email, hash, suite_admin, listed, created_at, last_login_at, session_gen"
+COLS = "id, name, display_name, email, hash, suite_admin, listed, created_at, last_login_at, session_gen, service"
 
 _cache = {"any": None, "any_at": 0.0}
 CACHE_S = 3.0
@@ -50,7 +50,7 @@ def init() -> bool:
 def any_users() -> bool:
     if _cache["any"] is not None and time.time() - _cache["any_at"] < CACHE_S:
         return _cache["any"]
-    v = db.one("SELECT 1 AS x FROM ios_users LIMIT 1") is not None
+    v = db.one("SELECT 1 AS x FROM ios_users WHERE service IS NULL LIMIT 1") is not None
     _cache.update(any=v, any_at=time.time())
     return v
 
@@ -59,7 +59,7 @@ def row(r, app: str | None = None) -> dict:
     """A users row as the dict the apps serve (never the hash). With an app: `role`, the account's role there."""
     u = {"id": r["id"], "name": r["name"], "displayName": r.get("display_name") or r["name"], "email": r.get("email") or "",
          "passwordless": not r.get("hash"), "suiteAdmin": bool(r.get("suite_admin")), "listed": bool(r.get("listed", 1)),
-         "created": r.get("created_at"), "last_login": r.get("last_login_at")}
+         "created": r.get("created_at"), "last_login": r.get("last_login_at"), "service": r.get("service") or None}
     if app is not None:
         u["role"] = role_of(u, app)
     return u
@@ -93,8 +93,29 @@ def find(name_or_email: str, app: str | None = None):
     return row(r, app) if r else None
 
 
-def list_users(app: str | None = None) -> list:
-    return [row(r, app) for r in db.q(f"SELECT {COLS} FROM ios_users ORDER BY id")]
+def list_users(app: str | None = None, services: bool = False) -> list:
+    """Every account; `services` also the apps' own service accounts (see service_account), which people never use."""
+    return [row(r, app) for r in db.q(f"SELECT {COLS} FROM ios_users" + ("" if services else " WHERE service IS NULL") + " ORDER BY id")]
+
+
+SERVICE_SUFFIX = "-app"
+
+
+def service_account(app: str) -> dict:
+    """The account an app uses to read from the other apps of the suite (iosuite_shared.links): one per app, made the
+    first time it is needed, named <app>-app, not on any sign-in screen, with a password nobody knows (so it signs in
+    with the app passwords links makes for it, never at a sign-in screen)."""
+    r = db.one(f"SELECT {COLS} FROM ios_users WHERE service = %s", (app,))
+    if r:
+        return row(r)
+    import secrets
+    name = app + SERVICE_SUFFIX
+    while find(name):
+        name = f"{app}{SERVICE_SUFFIX}-{secrets.token_hex(2)}"
+    uid = db.ex("INSERT INTO ios_users (name, display_name, hash, suite_admin, listed, created_at, service) VALUES (%s, %s, %s, 0, 0, %s, %s)",
+                (name, f"{app} (automatic)", hash_password(secrets.token_urlsafe(32)), int(time.time()), app))
+    invalidate()
+    return get(uid)
 
 
 def accounts(app: str | None = None) -> list:
@@ -200,9 +221,9 @@ def touch_login(user_id: int):
 def authenticate(name: str, password: str, app: str | None = None):
     """The account when the password is right (or the account has none), else None; constant time for an unknown name."""
     r = db.one(f"SELECT {COLS} FROM ios_users WHERE name = %s OR email = %s", ((name or "").strip(), (name or "").strip().lower()))
-    if not r:
+    if not r or r.get("service"):
         burn(password)
-        return None
+        return None  # a service account signs in with its app passwords only
     if r["hash"]:
         if not check_password(password, r["hash"]):
             return None

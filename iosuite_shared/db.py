@@ -35,6 +35,7 @@ SCHEMA = [
         created_at BIGINT NOT NULL,
         last_login_at BIGINT NULL,
         session_gen INT NOT NULL DEFAULT 0,
+        service VARCHAR(32) NULL,
         UNIQUE KEY uq_ios_users_name (name),
         UNIQUE KEY uq_ios_users_email (email)
     )""",
@@ -98,6 +99,20 @@ SCHEMA = [
         value MEDIUMTEXT NOT NULL,
         PRIMARY KEY (app, name)
     )""",
+    # keys and tokens: every credential an app keeps (an integration's API key, the sign-in one app uses to reach
+    # another), one row per key the app declares; value '' while none is set (iosuite_shared.credentials)
+    """CREATE TABLE IF NOT EXISTS ios_credentials (
+        app VARCHAR(32) NOT NULL,
+        name VARCHAR(64) NOT NULL,
+        value MEDIUMTEXT NOT NULL,
+        label VARCHAR(128) NOT NULL,
+        hint VARCHAR(255) NOT NULL DEFAULT '',
+        env VARCHAR(64) NOT NULL DEFAULT '',
+        env_set TINYINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NULL,
+        updated_by VARCHAR(64) NULL,
+        PRIMARY KEY (app, name)
+    )""",
     # the suite's apps, each written by the app itself when it starts (iosuite_shared.suite): what it is called, its
     # version, and where it is (the address its configuration names, else the best one it was reached at; and inside the
     # network: its LAN address and port), so the start
@@ -146,6 +161,10 @@ UPGRADES = [
     "ALTER TABLE ios_apps ADD COLUMN IF NOT EXISTS internal_url VARCHAR(512) NULL AFTER seen_url",
     # 0.15.0: what an app password may reach ('' everything; 'dav' the app's sync protocols only, see apppasswords)
     "ALTER TABLE ios_app_passwords ADD COLUMN IF NOT EXISTS scope VARCHAR(32) NOT NULL DEFAULT '' AFTER last_used_at",
+    # 0.18.0: an app's own service account (users.service_account) says which app it is for
+    "ALTER TABLE ios_users ADD COLUMN IF NOT EXISTS service VARCHAR(32) NULL AFTER session_gen",
+    # 0.18.0: the old MCP admin token is gone (nothing ever checked it; MCP signs in with app passwords)
+    "DELETE FROM ios_settings WHERE name = 'mcp_admin_token'",
 ]
 
 

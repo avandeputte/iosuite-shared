@@ -68,12 +68,11 @@ The database is the **Shared ioSuite database**: accounts, sessions, roles and a
 settings and list of apps. Its default name and account are `iosuite`; `IOSUITE_DB_*` are the only variables read.
 
 Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PROXY_CREATE`, `CF_ACCESS_TEAM`,
-`CF_ACCESS_AUD`) is kept once for the whole suite in the Shared ioSuite database, changed in the start page's
-Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`, always suite-wide). Since
-0.17.0 an app moves what its `config.env` still sets, and any older per-app value, into the suite-wide settings on
-its first request and comments those lines out of `config.env`; a value that disagrees with the suite-wide one is
-left in place (and shown in Settings › Suite), and a variable in a container's real environment still wins in that
-app. `CF_ACCESS_AUD` takes one AUD tag or several (comma-separated): one Cloudflare Access application covering
+`CF_ACCESS_AUD`) is kept once for the whole suite in the Shared ioSuite database and read only from there; it is changed
+in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`). Values
+in an app's `config.env` or environment and older per-app values are ignored: on the app's first request they fill a
+suite-wide setting that is still empty (AUD tags are added), then the `config.env` lines are commented out.
+`CF_ACCESS_AUD` takes one AUD tag or several (comma-separated): one Cloudflare Access application covering
 `*.iothing.net` is the simple setup (one AUD), an application per host works too (one AUD each).
 
 ## In a FastAPI app

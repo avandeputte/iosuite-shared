@@ -53,28 +53,34 @@ def test_adopt_moves_config_env_and_rows(tmp_path, monkeypatch):
     db.set_setting("cf_access_aud", AUD2, "iocalendar")  # another app's own AUD, from before
     db.set_setting("auth_proxy_create", "deny", "iopix")
     r = proxyauth.adopt("iopix")
-    assert not r["kept"] and len(r["moved"]) == 4
+    assert not r["ignored"] and len(r["moved"]) == 4
     s = db.settings_of("")
     assert s["auth_proxy"] == "cloudflare" and s["cf_access_team"] == "t.cloudflareaccess.com" and s["cf_access_aud"] == AUD1
     assert s["auth_proxy_create"] == "deny" and not db.settings_of("iopix")
     text = p.read_text()
-    assert "PORT=8600\n" in text and "\nAUTH_PROXY=" not in text and "# moved to the Shared ioSuite database" in text
+    assert "PORT=8600\n" in text and "\nAUTH_PROXY=" not in text and "# ignored since" in text
     assert "CF_ACCESS_AUD" not in os.environ and config.proxy_env("AUTH_PROXY") is None
     proxyauth.adopt("iocalendar")  # its AUD joins the suite-wide list
     db.settings_cache.clear()
     assert db.settings_of("")["cf_access_aud"] == f"{AUD1}, {AUD2}" and not db.settings_of("iocalendar")
     pr = proxyauth.Proxy("ionotes")
     assert pr.mode() == "cloudflare" and pr.cf_settings() == ("t.cloudflareaccess.com", [AUD1, AUD2])
-    assert proxyauth.adopt("iopix") == {"moved": [], "kept": {}}  # nothing left to move
+    assert proxyauth.adopt("iopix") == {"moved": [], "ignored": []}  # nothing left
 
 
-def test_adopt_leaves_a_disagreeing_value(tmp_path, monkeypatch):
+def test_conflicting_values_are_ignored(tmp_path, monkeypatch):
     db.set_setting("cf_access_team", "t.cloudflareaccess.com", "")
+    db.set_setting("auth_proxy_trusted", "10.0.0.0/8", "iocontacts")
     p = env_file(tmp_path, monkeypatch, "CF_ACCESS_TEAM=other.cloudflareaccess.com\n")
-    assert proxyauth.adopt("iocontacts")["kept"] == {"CF_ACCESS_TEAM": "config.env"}
-    assert "CF_ACCESS_TEAM=other" in p.read_text() and os.environ["CF_ACCESS_TEAM"] == "other.cloudflareaccess.com"
-    assert proxyauth.suite_status()["left"] == {"iocontacts": {"CF_ACCESS_TEAM": "config.env"}}
-    assert proxyauth.Proxy("iocontacts").status()["conflicts"] == {"CF_ACCESS_TEAM": "config.env"}
+    monkeypatch.setenv("AUTH_PROXY", "nginx")  # a container's own environment: ignored as well
+    db.set_setting("auth_proxy", "cloudflare", "")
+    r = proxyauth.adopt("iocontacts")
+    assert set(r["ignored"]) == {"CF_ACCESS_TEAM (config.env)", "AUTH_PROXY (environment)"} and r["moved"] == ["AUTH_PROXY_TRUSTED (database)"]
+    assert "# ignored since" in p.read_text() and "CF_ACCESS_TEAM" not in os.environ and "AUTH_PROXY" not in os.environ
+    pr = proxyauth.Proxy("iocontacts")
+    assert pr.opt("CF_ACCESS_TEAM") == "t.cloudflareaccess.com" and pr.mode() == "cloudflare" and not db.settings_of("iocontacts")
+    monkeypatch.setenv("CF_ACCESS_TEAM", "x.cloudflareaccess.com")  # even before adopt, the environment is not read
+    assert pr.status()["fromEnv"] == [] and pr.opt("CF_ACCESS_TEAM") == "t.cloudflareaccess.com"
 
 
 def test_suite_admin_api(monkeypatch):
@@ -89,9 +95,6 @@ def test_suite_admin_api(monkeypatch):
     r = c.put("/api/suite-admin/proxy", json={"AUTH_PROXY": "cloudflare", "CF_ACCESS_TEAM": "https://t.cloudflareaccess.com/", "CF_ACCESS_AUD": f"{AUD1} {AUD2}"}).json()
     assert r["values"]["CF_ACCESS_TEAM"] == "t.cloudflareaccess.com" and r["auds"] == [AUD1, AUD2] and r["here"]["cloudflareVerified"]
     assert c.put("/api/suite-admin/proxy", json={"AUTH_PROXY": "squid"}).status_code == 400
-    db.set_setting("auth_proxy_trusted", "10.0.0.0/8", "ionotes")
-    assert c.get("/api/suite-admin/proxy").json()["overrides"] == {"ionotes": {"AUTH_PROXY_TRUSTED": "10.0.0.0/8"}}
-    assert c.delete("/api/suite-admin/proxy/overrides/ionotes").json()["overrides"] == {}
     assert signed_in(app, "ann", "secret123").get("/api/suite-admin/proxy").status_code == 403
     # an app's own Settings saves suite-wide too
     assert TestClient(app).get("/api/suite-admin/proxy").status_code == 401

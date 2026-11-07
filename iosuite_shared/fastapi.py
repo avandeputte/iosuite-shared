@@ -17,10 +17,11 @@ import base64
 import json
 import logging
 import time
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from iosuite_shared import admin as suite_admin, apppasswords, db, proxyauth, sessions, suite, users
@@ -670,6 +671,13 @@ class Auth:
             if users.any_users() and not users.is_suite_admin(u):
                 raise HTTPException(403, "Suite admins only")
             return u
+
+        @r.get("/ui.js", dependencies=[access.suite_admin])
+        def api_ui():
+            """The panel itself (static/suite-admin.js), one ES module every app mounts under its Settings › Suite:
+            ui = await import(new URL('api/suite-admin/ui.js', document.baseURI).href); ui.mount(el, {sub, toast})."""
+            return FileResponse(Path(__file__).with_name("static") / "suite-admin.js", media_type="text/javascript",
+                                headers={"Cache-Control": "no-cache"})
 
         @r.get("", dependencies=[access.suite_admin])
         def api_overview(request: Request):

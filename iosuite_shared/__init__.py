@@ -14,4 +14,4 @@ Configuration (environment): IOSUITE_DB_HOST, _PORT, _NAME, _USER, _PASSWORD (th
 COOKIE_DOMAIN (the domain the session cookie is shared on, e.g. iothing.net; a request from a host outside it,
 such as a LAN address, gets a cookie for that host only).
 """
-__version__ = "0.20.0"
+__version__ = "0.21.0"

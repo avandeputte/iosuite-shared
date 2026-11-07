@@ -131,3 +131,35 @@ def test_panel_module_for_suite_admins():
     assert r.status_code == 200 and "javascript" in r.headers["content-type"]
     assert "export async function mount" in r.text
     assert signed_in(app, "ann", "secret123").get("/api/suite-admin/ui.js").status_code == 403
+
+
+def test_person_in_photos(monkeypatch):
+    """An account's person in ioPix's People: set and read from the panel, kept as ioPix's "person" value."""
+    app = make_app()
+    users.create("alex", "secret123", suite_admin=True)
+    kid = users.create("kid", "")
+    c = signed_in(app, "alex", "secret123")
+    assert c.get("/api/suite-admin/photo-people").json() == {"available": False, "people": []}  # no ioPix in the suite
+    r = c.patch(f"/api/suite-admin/users/{kid['id']}", json={"photoPerson": 42})
+    assert r.status_code == 200 and r.json()["photoPerson"] == 42
+    assert users.get_value(kid["id"], "iopix", "person") == 42  # where ioPix reads it
+    assert c.patch(f"/api/suite-admin/users/{kid['id']}", json={"photoPerson": "x"}).status_code == 400
+    assert c.patch(f"/api/suite-admin/users/{kid['id']}", json={"photoPerson": None}).json()["photoPerson"] is None
+    assert users.get_value(kid["id"], "iopix", "person") is None
+    r = c.post("/api/suite-admin/users", json={"name": "bob", "password": "secret123", "photoPerson": 7})
+    assert r.json()["photoPerson"] == 7
+
+    suite.register("iopix", name="ioPix", url="https://photo.example.com", version="1.0")
+    seen = []
+    monkeypatch.setattr("iosuite_shared.links.json", lambda reader, provider, path, timeout=15: seen.append((reader, provider, path)) or
+                        {"people": [{"id": 42, "name": "Kid", "photos": 12}]})
+    assert c.get("/api/suite-admin/photo-people").json() == {"available": True, "people": [{"id": 42, "name": "Kid", "photos": 12}]}
+    assert seen == [("iosuite", "iopix", "/api/people/list")]
+
+    def away(*a, **k):
+        raise OSError("down")
+    monkeypatch.setattr("iosuite_shared.links.json", away)
+    p = c.get("/api/suite-admin/photo-people").json()
+    assert p["available"] and p["people"] == [] and "down" in p["error"]
+    monkeypatch.setattr("iosuite_shared.links.get", away)
+    assert c.get("/api/suite-admin/photo-people/42/face.jpg").status_code == 404

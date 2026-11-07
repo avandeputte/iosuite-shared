@@ -15,6 +15,7 @@ from iosuite_shared import apppasswords, credentials, db, sessions, suite, users
 
 APP_KEY = re.compile(r"^[a-z0-9_-]{1,32}$")
 DEFAULT_ROLES = ("none", "viewer", "editor")  # what an app gives an account without a role there ("admin" by default is never wanted)
+PHOTO_APP = "iopix"  # the app whose People an account can be linked to: the person in photos, its face the account's picture
 
 
 def clean_app(app) -> str:
@@ -98,6 +99,8 @@ def accounts() -> list:
     for r in db.q("SELECT user_id, app, role FROM ios_user_roles"):
         roles.setdefault(r["user_id"], {})[r["app"]] = r["role"]
     defaults = {k: users.default_role(k) for k in keys}
+    photo = {r["user_id"]: db.json_load(r["value"]) for r in db.q(
+        "SELECT user_id, value FROM ios_user_data WHERE app = %s AND name = 'person'", (PHOTO_APP,))}
     out = []
     for u in users.list_users(services=True):
         mine = roles.get(u["id"], {})
@@ -109,7 +112,7 @@ def accounts() -> list:
             eff[k] = role
         s = ses.get(u["id"]) or {}
         out.append({**u, "roles": mine, "effective": eff, "appPasswords": pw.get(u["id"], 0), "sessions": int(s.get("n") or 0),
-                    "lastSeen": s.get("seen")})
+                    "lastSeen": s.get("seen"), "photoPerson": photo.get(u["id"])})
     return sorted(out, key=lambda u: u["name"].lower())
 
 
@@ -137,6 +140,8 @@ def create(me, body: dict) -> dict:
         if body.get("listed") is not None:
             users.update(u["id"], listed=bool(body["listed"]))
         set_roles(me, u["id"], roles)
+        if body.get("photoPerson"):
+            set_photo_person(u["id"], body["photoPerson"])
     except ValueError:
         users.delete(u["id"])
         raise
@@ -146,7 +151,7 @@ def create(me, body: dict) -> dict:
 
 def update(me, user_id: int, body: dict) -> dict:
     """Change an account: name, displayName, email, listed, suiteAdmin, password ('' removes it: one-click viewer),
-    roles {app: role | None}."""
+    roles {app: role | None}, photoPerson (the person in ioPix's People, a tag id; None unlinks)."""
     target = users.get(user_id)
     if not target:
         raise LookupError("No such user")
@@ -162,8 +167,47 @@ def update(me, user_id: int, body: dict) -> dict:
                  password=None if pw is None else str(pw)[:1024])
     if body.get("roles") is not None:
         set_roles(me, user_id, body["roles"])
+    if "photoPerson" in body:
+        set_photo_person(user_id, body["photoPerson"])
     _forget_caches()
     return account(user_id)
+
+
+# ---- the person in photos: an account linked to someone in ioPix's People. Kept here, as ioPix's "person" value of
+# the account (ios_user_data); ioPix shows that face on its sign-in screen and menu, and "Photos of me".
+def set_photo_person(user_id: int, person):
+    if person in (None, "", 0):
+        users.set_value(user_id, PHOTO_APP, "person", None)
+        return
+    try:
+        person = int(person)
+    except (TypeError, ValueError):
+        raise ValueError("photoPerson is a person id from ioPix's People")
+    users.set_value(user_id, PHOTO_APP, "person", person)
+
+
+def photo_people(reader: str) -> dict:
+    """The people in ioPix's People, read from ioPix as the reader (iosuite_shared.links):
+    {available, people: [{id, name, photos}], error?}. Not available while ioPix is not in the suite."""
+    from iosuite_shared import links
+    if not links.available(PHOTO_APP):
+        return {"available": False, "people": []}
+    try:
+        r = links.json(reader, PHOTO_APP, "/api/people/list")
+    except Exception as e:  # noqa: BLE001  ioPix is away, or older than its /api/people/list
+        return {"available": True, "people": [], "error": f"ioPix did not answer: {e}"}
+    return {"available": True, "people": [p for p in (r.get("people") if isinstance(r, dict) else r) or [] if isinstance(p, dict)]}
+
+
+def photo_face(reader: str, person: int) -> bytes:
+    """The face ioPix shows for a person (a JPEG). LookupError when there is none."""
+    from iosuite_shared import links
+    import urllib.error
+    try:
+        with links.get(reader, PHOTO_APP, f"/face/{int(person)}", accept="image/jpeg") as r:
+            return r.read()
+    except (RuntimeError, urllib.error.URLError, OSError) as e:
+        raise LookupError(f"No face: {e}")
 
 
 def delete(me, user_id: int):

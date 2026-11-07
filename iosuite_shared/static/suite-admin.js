@@ -74,6 +74,8 @@ const CSS = `
 .iosa table.sa-t { border-collapse: collapse; width: 100%; }
 .iosa table.sa-t th, .iosa table.sa-t td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--sa-line); vertical-align: middle; }
 .iosa table.sa-t th { font-size: 12px; color: var(--sa-fg2); font-weight: 600; }
+.iosa .sa-face, .iosa-back .sa-face { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; background: var(--sa-bg2); }
+.iosa .sa-who, .iosa-back .sa-who { display: flex; align-items: center; gap: 8px; }
 .iosa table.sa-roles th, .iosa table.sa-roles td { white-space: nowrap; }
 .iosa .sa-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
 .iosa a { color: var(--sa-accent); }
@@ -170,6 +172,8 @@ export async function mount(el, opts = {}) {
   const root = h('div', { class: 'iosa' });
   el.replaceChildren(root);
   let sub = SUBS.some(([k]) => k === opts.sub) ? opts.sub : 'people';
+  let photo = null;  // ioPix's People (the person in photos), read once, when People is first shown
+  const photoPeople = () => (photo = photo || api('photo-people').catch((e) => ({ available: false, people: [], error: e.message })));
   const draw = async () => {
     let o;
     try { o = await api('../suite-admin'); } catch (e) { root.replaceChildren(h('p', { class: 'sa-err' }, e.message)); return; }
@@ -179,7 +183,7 @@ export async function mount(el, opts = {}) {
       h('p', { class: 'sa-muted sa-intro' }, 'The whole suite at once: the accounts, passwords and roles every io app shares (the Shared ioSuite database). Changes apply in every app within a few seconds. Suite admins are admin everywhere.'),
       h('div', { class: 'sa-segs' }, SUBS.map(([k, l]) => h('button', { class: sub === k ? 'on' : '', onclick: () => go(k) }, l))),
       body);
-    const ctx = { o, redraw: draw, go };
+    const ctx = { o, redraw: draw, go, photoPeople };
     await ({ people: people, roles: roles, passwords: passwords, keys: keys, apps: apps, signin: signin })[sub](body, ctx);
   };
   const go = (k) => { sub = k; if (opts.onSub) opts.onSub(k); draw(); };
@@ -196,13 +200,30 @@ function roleSelect(u, a) {
     [...new Set([...allowed, ...(cur ? [cur] : [])])].map((x) => h('option', { value: x, selected: x === cur ? true : null }, x)));
 }
 
+const faceUrl = (id) => new URL(`photo-people/${id}/face.jpg`, API).href;
+const face = (id) => h('img', { class: 'sa-face', src: faceUrl(id), alt: '', loading: 'lazy', onerror: (e) => { e.target.style.visibility = 'hidden'; } });
+
 function people(el, ctx) {
   const { o } = ctx;
+  // the person in photos (ioPix's People): a column, filled in once ioPix answered, left out without ioPix
+  const photoTh = h('th', { style: { display: 'none' } }, 'In photos');
+  const photoTd = {};
+  ctx.photoPeople().then((p) => {
+    if (!p.available) return;
+    const names = new Map(p.people.map((x) => [x.id, x.name]));
+    photoTh.style.display = '';
+    for (const u of o.people) {
+      const td = photoTd[u.id];
+      td.style.display = '';
+      td.replaceChildren(u.photoPerson ? h('span', { class: 'sa-who' }, face(u.photoPerson), names.get(u.photoPerson) || `#${u.photoPerson}`) : h('span', { class: 'sa-muted' }, '–'));
+    }
+  });
   el.append(box('people', 'People',
-    h('div', { class: 'sa-scrollx' }, h('table', { class: 'sa-t' }, h('tr', null, h('th', null, 'Account'), h('th', null, 'Email'), h('th', null, 'Sign-in'), h('th', null, 'Last seen'), h('th')),
+    h('div', { class: 'sa-scrollx' }, h('table', { class: 'sa-t' }, h('tr', null, h('th', null, 'Account'), photoTh, h('th', null, 'Email'), h('th', null, 'Sign-in'), h('th', null, 'Last seen'), h('th')),
       o.people.map((u) => h('tr', null,
         h('td', null, h('b', null, u.displayName), h('div', { class: 'sa-muted sa-small' }, u.name,
           u.suiteAdmin ? ' · suite admin' : '', u.listed ? '' : ' · not on the sign-in list', u.id === o.me ? ' · you' : '')),
+        (photoTd[u.id] = h('td', { class: 'sa-small', style: { display: 'none' } })),
         h('td', { class: 'sa-small' }, u.email || h('span', { class: 'sa-muted' }, '–')),
         h('td', { class: 'sa-small' }, u.passwordless ? 'One click (LAN, viewer)' : 'Password',
           u.appPasswords ? h('div', { class: 'sa-muted' }, `${u.appPasswords} app password${u.appPasswords > 1 ? 's' : ''}`) : null),
@@ -211,7 +232,7 @@ function people(el, ctx) {
     h('p', null, h('button', { class: 'sa-btn primary', onclick: () => editAccount(ctx, null) }, icon('add'), 'Add someone'))));
   const svc = o.users.filter((u) => u.service);
   if (svc.length) el.append(box('apps', 'Apps reading from each other',
-    h('p', { class: 'sa-muted' }, 'Each app that reads from another (ioCalendar and ioPix from ioContacts, ioContacts from ioPix) signs in as its own account here, with a read-only app password it made by itself. Nobody signs in with these. Revoking one of their app passwords is safe: the app makes a new one the next time it needs it.'),
+    h('p', { class: 'sa-muted' }, 'Each app that reads from another (ioCalendar and ioPix from ioContacts, ioContacts from ioPix, every app's Settings › Suite from ioPix for the person in photos) signs in as its own account here, with a read-only app password it made by itself. Nobody signs in with these. Revoking one of their app passwords is safe: the app makes a new one the next time it needs it.'),
     h('div', { class: 'sa-scrollx' }, h('table', { class: 'sa-t' }, h('tr', null, h('th', null, 'Account'), h('th', null, 'For'), h('th', null, 'App passwords'), h('th', null, 'Last used'), h('th')),
       svc.map((u) => h('tr', null, h('td', null, h('b', null, u.name)), h('td', null, appLabel(o, u.service)),
         h('td', { class: 'sa-small' }, `${u.appPasswords}`), h('td', { class: 'sa-small' }, sinceText(u.lastSeen || u.last_login)),
@@ -234,12 +255,30 @@ async function editAccount(ctx, u) {
   const sels = {};
   const roleRows = o.apps.map((a) => { sels[a.app] = roleSelect(u, a); return h('div', { class: 'sa-rolerow' }, h('span', null, a.name, a.registered ? '' : h('span', { class: 'sa-muted sa-small' }, ' (not running)')), sels[a.app]); });
   const extra = h('div');
+  // the person in photos: someone in ioPix's People; their face is the account's picture in ioPix (sign-in screen, menu)
+  const ppSel = h('select', { class: 'sa-in' }, h('option', { value: '' }, 'not linked'));
+  const ppFace = h('span');
+  const ppNote = h('div', { class: 'sa-muted sa-small' });
+  const ppRow = h('div', { style: { display: 'none' } }, h('h3', null, 'Person in photos'),
+    h('div', { class: 'sa-who' }, ppFace, ppSel), ppNote);
+  const showFace = () => ppFace.replaceChildren(...(ppSel.value ? [face(ppSel.value)] : []));
+  ppSel.addEventListener('change', showFace);
+  ctx.photoPeople().then((p) => {
+    if (!p.available) return;
+    ppRow.style.display = '';
+    const list = p.people.slice().sort((a, b) => a.name.localeCompare(b.name));
+    if (u.photoPerson && !list.some((x) => x.id === u.photoPerson)) list.unshift({ id: u.photoPerson, name: `#${u.photoPerson} (not in People any more)` });
+    ppSel.append(...list.map((x) => h('option', { value: x.id, selected: x.id === u.photoPerson ? true : null }, x.photos != null ? `${x.name} (${x.photos})` : x.name)));
+    ppSel.value = u.photoPerson ? String(u.photoPerson) : '';
+    showFace();
+    ppNote.textContent = p.error || 'Someone in ioPix’s People: their face is this account’s picture in ioPix (the sign-in screen and the menu) and “Photos of me” shows their photos.';
+  });
   const body = h('div', null,
     h('div', { class: 'sa-grid' }, fld('User name', name), fld('Display name', dn), fld('Email', em), fld(isNew ? 'Password' : 'New password', pw)),
     !isNew && !me ? h('label', { class: 'sa-check' }, nopw, h('span', null, 'No password: one-click sign-in on the LAN only, viewer everywhere, no app passwords')) : null,
     h('label', { class: 'sa-check' }, listed, h('span', null, 'On the sign-in list')),
     h('label', { class: 'sa-check' }, sa, h('span', null, 'Suite admin: admin in every app, manages this screen', me ? h('span', { class: 'sa-muted sa-small' }, ' (another suite admin can change yours)') : '')),
-    h('h3', null, 'Role in each app'), h('div', { class: 'sa-rolegrid' }, roleRows), extra);
+    ppRow, h('h3', null, 'Role in each app'), h('div', { class: 'sa-rolegrid' }, roleRows), extra);
   if (!isNew) accountExtra(extra, o, u);
   const save = async () => {
     const roles = {};
@@ -249,6 +288,8 @@ async function editAccount(ctx, u) {
     else if (nopw.checked && !u.passwordless) b.password = '';
     else if (pw.value) b.password = pw.value;
     if (me) delete b.suiteAdmin;
+    const pp = ppSel.value ? Number(ppSel.value) : null;
+    if (ppRow.style.display !== 'none' && pp !== (u.photoPerson || null)) b.photoPerson = pp;
     try {
       await api(isNew ? 'users' : `users/${u.id}`, { method: isNew ? 'POST' : 'PATCH', json: b });
       toast(isNew ? 'Account made' : 'Saved'); return true;

@@ -56,7 +56,7 @@ def test_old_database_renamed_with_every_row():
     db.init()  # twice: nothing left to do
     with db.tx() as con, con.cursor() as cur:
         assert schema.tables(cur) == {"ios_users", "ios_user_roles", "ios_user_data", "ios_sessions", "ios_app_passwords",
-                                      "ios_settings", "ios_apps", "ios_schema_version"}
+                                      "ios_settings", "ios_apps", "ios_credentials", "ios_schema_version"}
         assert schema.current_version(cur, "ios") == db.SCHEMA_VERSION
         assert "uq_ios_users_email" in schema.indexes(cur, "ios_users")
         assert {"idx_ios_sessions_user", "idx_ios_sessions_expires"} <= schema.indexes(cur, "ios_sessions")

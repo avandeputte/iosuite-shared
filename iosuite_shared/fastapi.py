@@ -172,6 +172,7 @@ class Auth:
         # what a scoped app password may reach, by path prefix (apppasswords: 'dav', the app's sync protocols); anywhere
         # else it gets 403. An app without DAV sets it to {} so it offers no such passwords.
         self.scope_paths = {apppasswords.DAV: ("/dav", "/.well-known/caldav", "/.well-known/carddav")}
+        # 'read' (apppasswords.READ, the apps' own service accounts) is the same everywhere: GET and HEAD under /api/
         remember_peer()
 
     # ---- the suite's list of apps
@@ -279,6 +280,10 @@ class Auth:
         scope = getattr(request.state, "app_password_scope", "")
         if not scope or not getattr(request.state, "user", None):
             return None
+        if scope == apppasswords.READ:
+            if request.method in ("GET", "HEAD") and request.url.path.startswith("/api/"):
+                return None
+            return JSONResponse({"detail": f"This app password may only read {self.label}'s API."}, status_code=403)
         if request.url.path.startswith(tuple(self.scope_paths.get(scope, ())) or ("\0",)):
             return None
         return JSONResponse({"detail": f"This app password is for {self.label}'s sync protocols only (CalDAV / CardDAV). "
@@ -646,8 +651,8 @@ class Auth:
 
     def admin_router(self) -> APIRouter:
         """Suite administration (suite admins only), everything in the Shared ioSuite database at /api/suite-admin/*:
-        accounts with their role in every app, every app password, sessions, and the apps with their access settings
-        (iosuite_shared.admin)."""
+        accounts with their role in every app, every app password, sessions, every app's keys and tokens (never their
+        values), and the apps with their access settings (iosuite_shared.admin)."""
         auth, access = self, self.access
         r = APIRouter(prefix="/api/suite-admin")
 
@@ -733,6 +738,28 @@ class Auth:
             call(suite_admin.revoke_app_password, pid)
             return {"ok": True}
 
+        @r.get("/keys", dependencies=[access.suite_admin])
+        def api_keys(request: Request, app: str = None):
+            """Every key and token the apps keep (never the values)."""
+            me(request)
+            return {"items": call(suite_admin.keys, app)}
+
+        @r.put("/keys/{app}/{name}", dependencies=[access.suite_admin])
+        async def api_set_key(app: str, name: str, request: Request):
+            """{value}: replace it; '' clears it."""
+            body = await json_body(request)
+            who = me(request)
+            k = await run_in_threadpool(call, suite_admin.set_key, who, app, name, body.get("value"))
+            authlog.info("suite admin: %s %s of %s by %s", "set" if k["set"] else "cleared", name, app, (who or {}).get("name"))
+            return k
+
+        @r.delete("/keys/{app}/{name}", dependencies=[access.suite_admin])
+        def api_clear_key(app: str, name: str, request: Request):
+            who = me(request)
+            call(suite_admin.set_key, who, app, name, None)
+            authlog.info("suite admin: cleared %s of %s by %s", name, app, (who or {}).get("name"))
+            return {"ok": True}
+
         @r.patch("/apps/{key}", dependencies=[access.suite_admin])
         async def api_app(key: str, request: Request):
             body = await json_body(request)
@@ -778,7 +805,7 @@ class Auth:
     def server_router(self, updater, log_file=None, info=None, apply=None) -> APIRouter:
         """Maintenance › Updates and logs, the same in every app (admins):
             GET  /api/server                 the installed version, the last check, whether update.sh can run, the switches
-            POST /api/server {action, ref?}  action: check | update | token | regenerate_token | restart; {autoCheck: bool}
+            POST /api/server {action, ref?}  action: check | update | restart; {autoCheck: bool}
                                              saves the daily-check switch; anything else goes to apply(body)
             GET  /api/log?lines&level&contains&requests   the tail of the server log (with log_file)
             GET  /api/log/download
@@ -818,19 +845,12 @@ class Auth:
                 except RuntimeError as e:
                     raise HTTPException(409, str(e))
                 return {"started": True}
-            if action == "token":
-                return {"token": await run_in_threadpool(updater.admin_token), "fromEnv": bool(updater.token_env)}
-            if action == "regenerate_token":
-                try:
-                    return {"token": await run_in_threadpool(updater.regenerate_token), "fromEnv": False}
-                except ValueError as e:
-                    raise HTTPException(400, str(e))
             if action == "restart":
                 authlog.info("%s restarted by %s", label, (self.current_user(request) or {}).get("name"))
                 updater.restart()
                 return {"ok": True}
             if action:
-                raise HTTPException(400, "action must be check, update, token, regenerate_token or restart")
+                raise HTTPException(400, "action must be check, update or restart")
             return await run_in_threadpool(server_info)
 
         if log_file:

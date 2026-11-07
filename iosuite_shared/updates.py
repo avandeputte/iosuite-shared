@@ -1,5 +1,5 @@
 """Updating an app itself, the same way in every ioThing app: which commit is installed, whether GitHub has a newer
-version, running the app's update.sh, restarting, the MCP admin token, and the tail of the server log.
+version, running the app's update.sh, restarting, and the tail of the server log.
 
     from iosuite_shared.updates import Updater
     updater = Updater("iocalendar", version=__version__, root=ROOT)        # repo avandeputte/iocalendar, branch main
@@ -11,14 +11,12 @@ outcome and which repository and branch to follow through <PREFIX>_RESULT, <PREF
 <PREFIX>_REF in its environment (PREFIX is the app's key in capitals: IOCALENDAR_RESULT ...). Docker installs are
 updated by pulling the image, so there the check only reports.
 
-The "check for updates daily" switch and the MCP admin token are settings of the app in the Shared ioSuite database
+The "check for updates daily" switch is a setting of the app in the Shared ioSuite database
 (`db.get_setting(key, app=...)`); an app that keeps its settings elsewhere passes `settings=(get, set)`.
 """
-import hmac
 import json
 import os
 import re
-import secrets
 import subprocess
 import threading
 import time
@@ -43,8 +41,7 @@ class Updater:
     """One per app. `app` is its key (iocalendar), `version` the running version, `root` the folder with update.sh.
     `repo` and `branch` default to <PREFIX>_REPO / <PREFIX>_BRANCH in the environment, then avandeputte/<app> and main.
     `version_file` is the file in the repository that holds the version line (__version__ = "..."),
-    relative to the repository root. UPDATE_CHECK=0 in the environment locks the daily check off; MCP_ADMIN_TOKEN
-    fixes the MCP admin token."""
+    relative to the repository root. UPDATE_CHECK=0 in the environment locks the daily check off."""
 
     def __init__(self, app: str, version: str, root, repo: str = None, branch: str = None, version_file: str = "app/__init__.py",
                  result_file=None, settings=None, env_prefix: str = None, user_agent: str = None):
@@ -56,7 +53,6 @@ class Updater:
         self.result_file = Path(result_file) if result_file else self.root / ".update-result"
         self.user_agent = user_agent or app
         self.check_locked = _env_flag_off("UPDATE_CHECK")
-        self.token_env = os.environ.get("MCP_ADMIN_TOKEN", "").strip()
         self._get, self._set = settings or (lambda k, d="": db.get_setting(k, d, app), lambda k, v: db.set_setting(k, v, app))
         self._run_lock = threading.Lock()
         self._checked: dict = {}
@@ -236,28 +232,6 @@ class Updater:
         """End the process shortly; systemd (Restart=always), launchd (KeepAlive) or Docker (restart: unless-stopped)
         starts the app again."""
         threading.Timer(delay, lambda: os._exit(0)).start()
-
-    # ---- the MCP admin token
-    def admin_token(self) -> str:
-        """The token that lets an MCP client act as an admin. MCP_ADMIN_TOKEN in the environment wins; otherwise one is
-        generated once and kept in the settings."""
-        if self.token_env:
-            return self.token_env
-        tok = self._get("mcp_admin_token", "")
-        if not tok:
-            tok = secrets.token_urlsafe(24)
-            self._set("mcp_admin_token", tok)
-        return tok
-
-    def regenerate_token(self) -> str:
-        if self.token_env:
-            raise ValueError("The token comes from MCP_ADMIN_TOKEN in the environment; change it there")
-        tok = secrets.token_urlsafe(24)
-        self._set("mcp_admin_token", tok)
-        return tok
-
-    def token_ok(self, given: str) -> bool:
-        return bool(given) and hmac.compare_digest(str(given), self.admin_token())
 
 
 # ---- the server log

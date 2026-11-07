@@ -18,10 +18,10 @@ def make_app(name, **kw):
 
 
 def test_register_keeps_one_row_and_clears_what_the_app_no_longer_says():
-    suite.register("iopix", "ioPix", url="https://photo.iothing.net/", version="1.0", color="#3b4a8c")
+    suite.register("iopix", "ioPix", url="https://photo.example.com/", version="1.0", color="#3b4a8c")
     r = suite.get("iopix")
-    assert r["url"] == "https://photo.iothing.net" and r["configuredUrl"] == "https://photo.iothing.net"
-    assert r["icon"] == "https://photo.iothing.net/static/icons/mark.svg" and r["version"] == "1.0"
+    assert r["url"] == "https://photo.example.com" and r["configuredUrl"] == "https://photo.example.com"
+    assert r["icon"] == "https://photo.example.com/static/icons/mark.svg" and r["version"] == "1.0"
     suite.register("iopix", "ioPix", version="1.1")
     r = suite.get("iopix")
     assert r["url"] is None and r["version"] == "1.1" and r["color"] is None
@@ -32,23 +32,23 @@ def test_register_keeps_one_row_and_clears_what_the_app_no_longer_says():
 def test_bad_url_is_refused():
     import pytest
     with pytest.raises(ValueError):
-        suite.register("iopix", "ioPix", url="photo.iothing.net")
+        suite.register("iopix", "ioPix", url="photo.example.com")
 
 
 def test_rank_prefers_the_shared_domain_over_https(monkeypatch):
-    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
+    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "example.com")
     assert suite._rank("http://localhost:8600") == -1
     assert suite._rank("http://127.0.0.1:8600") == -1
     assert suite._rank("http://testserver") == -1
     assert suite._rank("http://192.168.1.89:8600") == 0
     assert suite._rank("http://[fd00::1]:8600") == 0
     assert suite._rank("http://nas:8600") == 1
-    assert suite._rank("https://photo.iothing.net") == 3
-    assert suite._rank("https://photo.iothing.net") > suite._rank("http://nas.lan:8600")
+    assert suite._rank("https://photo.example.com") == 3
+    assert suite._rank("https://photo.example.com") > suite._rank("http://nas.lan:8600")
 
 
 def test_middleware_registers_and_notes_the_best_address(monkeypatch):
-    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
+    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "example.com")
     suite.invalidate()
     app, _ = make_app("iocalendar", label="ioCalendar", version="0.4.0", color="#963522")
     TestClient(app, base_url="http://testserver").get("/api/x")
@@ -59,11 +59,11 @@ def test_middleware_registers_and_notes_the_best_address(monkeypatch):
     TestClient(app, base_url="http://calendar.lan:8620").get("/api/x")
     assert suite.get("iocalendar")["url"] == "http://calendar.lan:8620"
     c = TestClient(app, base_url="http://10.0.0.5:8620")
-    c.get("/api/x", headers={"x-forwarded-proto": "https", "x-forwarded-host": "calendar.iothing.net"})
-    assert suite.get("iocalendar")["url"] == "https://calendar.iothing.net"
-    assert suite.get("iocalendar")["icon"] == "https://calendar.iothing.net/static/icons/mark.svg"
+    c.get("/api/x", headers={"x-forwarded-proto": "https", "x-forwarded-host": "calendar.example.com"})
+    assert suite.get("iocalendar")["url"] == "https://calendar.example.com"
+    assert suite.get("iocalendar")["icon"] == "https://calendar.example.com/static/icons/mark.svg"
     TestClient(app, base_url="http://192.168.1.89:8620").get("/api/x")  # a worse address does not replace it
-    assert suite.get("iocalendar")["url"] == "https://calendar.iothing.net"
+    assert suite.get("iocalendar")["url"] == "https://calendar.example.com"
 
 
 def test_configured_url_wins_and_register_false_stays_out():
@@ -89,7 +89,7 @@ def test_api_lists_for_signed_in_and_suite_admins_forget():
     app, _ = make_app("iosuite", label="ioSuite")
     users.create("alex", "secret123", "admin", "iosuite", suite_admin=True)
     users.create("bob", "secret123", "viewer", "iosuite")
-    suite.register("iopix", "ioPix", url="https://photo.iothing.net")
+    suite.register("iopix", "ioPix", url="https://photo.example.com")
     c = TestClient(app, base_url="http://home.lan")
     assert c.get("/api/auth/suite").status_code == 401
     c.post("/api/auth/login", json={"name": "bob", "password": "secret123"})

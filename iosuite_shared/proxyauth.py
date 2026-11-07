@@ -12,7 +12,7 @@ The header is believed only from the proxy itself, never from anyone who can rea
 Settings: kept once for the whole suite in the Shared ioSuite database (ios_settings, app ''), the only place they are
 read from: the start page's Settings › Suite and every app's own Settings change them. config.env and the environment
 are never read for them.
-CF_ACCESS_AUD holds one AUD tag or several (comma-separated): one Cloudflare Access application covering *.iothing.net
+CF_ACCESS_AUD holds one AUD tag or several (comma-separated): one Cloudflare Access application covering *.example.com
 has one, an application per host one each, and a token for any of them is accepted.
 """
 import ipaddress

@@ -3,7 +3,7 @@
 The suite's shared library: the Python package `iosuite-shared` (module `iosuite_shared`).
 
 The Shared ioSuite database for the ioThing apps (ioPix, ioNotes, ioContacts): one account, one password, one session for
-the whole suite. Signed in at `photo.iothing.net`, a person is signed in at `notes.iothing.net` too.
+the whole suite. Signed in at `photo.example.com`, a person is signed in at `notes.example.com` too.
 
 ## What is shared, what is per app
 
@@ -72,7 +72,7 @@ Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PR
 in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`).
 `config.env` and the environment are never read for them.
 `CF_ACCESS_AUD` takes one AUD tag or several (comma-separated): one Cloudflare Access application covering
-`*.iothing.net` is the simple setup (one AUD), an application per host works too (one AUD each).
+`*.example.com` is the simple setup (one AUD), an application per host works too (one AUD each).
 
 ## In a FastAPI app
 
@@ -249,7 +249,7 @@ start, for reference only: nothing links to it, and `url` stays as above.
 ```python
 from iosuite_shared import suite
 suite.apps()            # [{app, name, description, version, color, icon, url, configuredUrl, seenUrl, internalUrl, lastSeen, ...}]
-suite.url_of("iopix")   # "https://photo.iothing.net" or None
+suite.url_of("iopix")   # "https://photo.example.com" or None
 ```
 
 Over HTTP: `GET /api/auth/suite` (signed in) lists them; `DELETE /api/auth/suite/{app}` (suite admins) forgets an

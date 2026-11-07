@@ -8,7 +8,7 @@ ioContacts, ioContacts' faces from ioPix.
 
 The other app is found in the suite's list (ios_apps): its public address (PUBLIC_URL, else the one it was last
 reached at), never the internal one. The reader signs in as its own service account (users.service_account:
-<app>-app, on no sign-in screen) with an app password of the other app that may only read its API (scope 'read'),
+<app>-app, on no sign-in screen) with an app password of the other app that may only read (scope 'read'),
 and a viewer role there. Both are made the first time they are needed; the password is kept in the keys and tokens
 store (iosuite_shared.credentials) under the reader, and made again when the other app stops taking it (revoked from
 Settings › Suite, say). When the other app sits behind Cloudflare Access, the suite-wide Cloudflare Access service
@@ -82,11 +82,13 @@ def password(reader: str, provider: str, fresh: bool = False) -> tuple[str, str]
         return svc["name"], pw
 
 
-def headers(reader: str, provider: str, fresh: bool = False) -> dict:
+def headers(reader: str, provider: str, fresh: bool = False, sign_in: bool = True) -> dict:
     """The headers that sign the reader in at the provider (HTTP Basic, and Cloudflare Access when the suite has a
-    service token)."""
-    name, pw = password(reader, provider, fresh)
-    h = {"Authorization": "Basic " + base64.b64encode(f"{name}:{pw}".encode()).decode()}
+    service token). sign_in False: Cloudflare Access only (an address that carries its own token, such as a feed)."""
+    h = {}
+    if sign_in:
+        name, pw = password(reader, provider, fresh)
+        h["Authorization"] = "Basic " + base64.b64encode(f"{name}:{pw}".encode()).decode()
     _declare_suite_keys()
     cid, sec = credentials.get("", "cf_access_client_id"), credentials.get("", "cf_access_client_secret")
     if cid and sec:
@@ -94,9 +96,11 @@ def headers(reader: str, provider: str, fresh: bool = False) -> dict:
     return h
 
 
-def get(reader: str, provider: str, path: str, timeout: float = 15, accept: str = "application/json", user_agent: str = None):
+def get(reader: str, provider: str, path: str, timeout: float = 15, accept: str = "application/json", user_agent: str = None,
+        sign_in: bool = True):
     """GET path at the provider as the reader (a urllib response). RuntimeError when the provider is not in the suite;
-    urllib's HTTPError and URLError otherwise. A 401 makes the app password again once (it was revoked)."""
+    urllib's HTTPError and URLError otherwise. A 401 makes the app password again once (it was revoked). For an
+    address that carries its own token (a feed), sign_in=False sends no app password."""
     base = url(provider)
     if not base:
         raise RuntimeError(f"{provider} is not in the suite's list of apps")
@@ -104,11 +108,11 @@ def get(reader: str, provider: str, path: str, timeout: float = 15, accept: str 
     if urllib.parse.urlsplit(target).scheme not in ("http", "https"):
         raise RuntimeError(f"{provider}'s address is not http(s)")
     for attempt in (0, 1):
-        h = {"Accept": accept, "User-Agent": user_agent or reader, **headers(reader, provider, fresh=attempt == 1)}
+        h = {"Accept": accept, "User-Agent": user_agent or reader, **headers(reader, provider, fresh=attempt == 1, sign_in=sign_in)}
         try:
             return urllib.request.urlopen(urllib.request.Request(target, headers=h), timeout=timeout)  # noqa: S310  http(s), checked above
         except urllib.error.HTTPError as e:
-            if e.code != 401 or attempt:
+            if e.code != 401 or attempt or not sign_in:
                 raise
             log.info("%s: %s did not take its app password; making a new one", reader, provider)
 

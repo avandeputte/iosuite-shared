@@ -212,8 +212,8 @@ A groups file holds one `  has <group> <module>` line per optional extra (`  has
 that runs once the new code is in place. Change the template here, then render it into every app.
 
 `updates.setup_log(LOG_FILE)` sets logging up the same way in every app: INFO to stderr, and a rotating copy of
-everything (5 MB, 3 old files, uvicorn's lines included) in `LOG_FILE`, which `tail()` and `GET /api/log` read. The daily-check switch and the token are settings of the app in the Shared ioSuite
-database; pass `settings=(get, set)` to keep them elsewhere.
+everything (5 MB, 3 old files, uvicorn's lines included) in `LOG_FILE`, which `tail()` and `GET /api/log` read. The daily-check switch is a setting of the app in the Shared ioSuite
+database; pass `settings=(get, set)` to keep it elsewhere.
 
 ## The suite's apps
 
@@ -294,8 +294,8 @@ password, app)`, which returns `(user, scope)`, and checks the scope itself.
 - `POST /api/auth/app-passwords {label, scope}`; `GET` lists them with `scope`, and `scopes` (what the app offers)
 - `apppasswords.set_scope(app, prefix, scope)`: for an app moving a record of its own into the column
 
-`'read'` (`apppasswords.READ`) may only read: GET and HEAD under `/api/`, in every app the same (not MCP, not DAV, no
-writes). It is what the apps' own service accounts get (see App links below).
+`'read'` (`apppasswords.READ`) may only read: GET and HEAD, in every app the same, anywhere but `/mcp`, `/dav` and
+`/.well-known/` (no writes, no MCP, no sync). It is what the apps' own service accounts get (see App links below).
 
 ## Keys and tokens
 

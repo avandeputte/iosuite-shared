@@ -70,7 +70,10 @@ settings and list of apps. Its default name and account are `iosuite`; `IOSUITE_
 Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PROXY_CREATE`, `CF_ACCESS_TEAM`,
 `CF_ACCESS_AUD`) is kept once for the whole suite in the Shared ioSuite database and read only from there; it is changed
 in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`).
-`config.env` and the environment are never read for them.
+`config.env` and the environment are never read for them. A proxy that names the user in a header (every preset but
+Cloudflare) needs its address in `AUTH_PROXY_TRUSTED`: the header is believed from there only, and with several apps on
+one machine "this machine" would let any local process sign in as anyone. For Cloudflare the token is verified, so the
+default (127.0.0.1 and ::1, where cloudflared runs) stands.
 `CF_ACCESS_AUD` takes one AUD tag or several (comma-separated): one Cloudflare Access application covering
 `*.example.com` is the simple setup (one AUD), an application per host works too (one AUD each).
 
@@ -89,7 +92,7 @@ app.include_router(auth.router())         # /api/auth/login, accounts, logout, l
 app.include_router(auth.users_router())   # /api/users (admins of this app), /api/users/{id}/sessions (list, DELETE all or ?session=)
 app.include_router(auth.status_router(updater, extra=lambda request: {...}))   # GET /api/status (below)
 app.include_router(auth.server_router(updater, log_file=LOG_FILE))   # /api/server, /api/log (below)
-auth.install(app, limit_for=lambda path, ctype: 4 << 20)   # 400 for bad input, the headers, the body cap (below)
+auth.install(app, limit_for=lambda path, ctype: 4 << 20, forwarded_allow_ips=config.FORWARDED_ALLOW_IPS)   # 400 for bad input, the headers, the body cap, the forwarded headers (below)
 
 @router.post("/api/photos/tag", dependencies=[auth.access.editor_write])
 def tag(request: Request):
@@ -97,8 +100,26 @@ def tag(request: Request):
 ```
 
 `auth.access` gives `public`, `signed_in`, `editor`, `editor_write`, `admin`, `admin_write`, `suite_admin`; the
-`_write` ones answer 403 while `read_only()` says so. The JSON shapes are those of iopix's API, so its pages and
-the ionotes/iocontacts ones (which copied them) keep working.
+`_write` ones answer 403 while `read_only()` says so. A rule of the app's own gets a marker of its own,
+`auth.access.custom("uploader", lambda user, request: ..., "Uploads need an editor")`, so the route says what it needs
+instead of carrying `public` and checking inside. The marker is the check: a route does not test the role again in
+its body. The JSON shapes are those of iopix's API, so its pages and the ionotes/iocontacts ones (which copied them)
+keep working: `PATCH /api/users/{id}` changes an account, `DELETE /api/users/{id}` removes it;
+`POST /api/auth/password {current, password}` changes the caller's own password (never removes it: that is an
+admin's decision on the users route).
+
+Wrong passwords are counted on every path: the sign-in route, HTTP Basic and bearer tokens (`Auth._authorization`)
+and, through `users.attempt_wait / attempt_failed / attempt_succeeded`, an app's own server such as ioContacts' LDAP.
+After `users.LOCK_AFTER` failures for a (visitor, name) pair the next attempt waits (429 with `Retry-After`, before any
+hash is computed); the name alone and the address alone have higher limits. A wrong password repeated within a few
+seconds (a client with a stale one) is answered from memory without a hash.
+
+The code is in three modules: `iosuite_shared.fastapi` (`Auth`: who is asking, the middleware, `install`),
+`iosuite_shared.access` (the markers, the JSON body, the body cap) and `iosuite_shared.routers` (the routers);
+`from iosuite_shared.fastapi import Auth, public_user, json_body, BodyCap` keeps working.
+
+The Shared ioSuite database is reached through a small connection pool (`db.Pool`); an app uses the same class for
+its own database: `pool = db.Pool(connect)` and `with pool.tx() as con:`.
 
 Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, changes)`, and for anything else
 `users.get_value / set_value(uid, app, key, value)` (JSON values).
@@ -148,12 +169,16 @@ containers' health checks and the apps' shells read it alike:
  commit (signed in), update (admins, while the daily check is on: {version, remote, message, date, canRun, docker} | null), ...extra(request)}
 ```
 
-`auth.install(app)` adds what every app's FastAPI gets the same way: a `ValueError`, `TypeError` or malformed JSON out
-of a route answers `400 {"detail": "Bad request: ..."}` (`not_found=(MyNotFound,)` names exceptions that mean 404;
-`error_key="error"` adds a second key beside `detail`); `X-Content-Type-Options: nosniff` and `Referrer-Policy:
-same-origin` on everything, `Cache-Control: no-store` on `/api/` and `no-cache` elsewhere unless the route set its
-own; and a body cap: a request larger than `limit_for(path, content_type)` bytes (`body_limit`, 4 MB, by default) is
-refused with 413 by its Content-Length before it is read, and as it arrives when it comes chunked or longer than it said.
+`auth.install(app)` adds what every app's FastAPI gets the same way: a `ValueError` or malformed JSON out of a route
+answers `400 {"detail": "Bad request: ..."}` (a `TypeError` is a bug and stays a 500 with its traceback;
+`not_found=(MyNotFound,)` names exceptions that mean 404; `error_key="error"` adds a second key beside `detail`);
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin` on everything, `Cache-Control: no-store` on
+`/api/` and `no-cache` elsewhere unless the route set its own; a body cap: a request larger than
+`limit_for(path, content_type)` bytes (`body_limit`, 4 MB, by default) is refused with 413 by its Content-Length
+before it is read, and as it arrives when it comes chunked or longer than it said; and the forwarded headers
+(`proxyauth.Forwarded`): the address the connection really came from is kept for proxy sign-in and the throttles, and
+`X-Forwarded-For` / `X-Forwarded-Proto` are believed from `forwarded_allow_ips` (the app's `FORWARDED_ALLOW_IPS`).
+The apps start uvicorn with `proxy_headers=False`, so this is the one place the headers are read.
 
 ## MCP
 

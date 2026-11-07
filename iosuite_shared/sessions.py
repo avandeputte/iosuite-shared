@@ -61,9 +61,14 @@ def create(user_id: int, app: str, via: str, info: dict = None) -> str:
           "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
           (_hash(token), user_id, app, via[:16], now, now + SESSION_DAYS * 86400, now, i.get("ip"), 1 if i.get("cloudflare") else 0,
            (i.get("client") or "")[:32], i.get("user_agent"), now, i.get("ip")))
-    if now % 50 == 0:  # now and then: expired sessions go
+    if now - _purged["at"] > PURGE_EVERY:  # now and then: expired sessions go
+        _purged["at"] = now
         db.ex("DELETE FROM ios_sessions WHERE expires_at < %s", (now,))
     return token
+
+
+PURGE_EVERY = 3600  # expired rows are deleted at most once an hour, at a sign-in
+_purged = {"at": 0}
 
 
 def end(token: str):

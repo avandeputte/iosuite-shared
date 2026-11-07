@@ -1,7 +1,5 @@
-"""Password hashing: scrypt, with the parameters stored in the hash so they can be raised later.
-
-Formats accepted: scrypt2$n$r$p$salt$hash (what is made now), and scrypt$salt$hash (the first iopix / ioContacts
-format, n=2^14, r=8, p=1), which is replaced with the current one the next time the password is seen.
+"""Password hashing: scrypt, with the parameters stored in the hash (scrypt2$n$r$p$salt$hash) so they can be raised
+later: a hash made with other parameters is replaced the next time the password is seen (needs_rehash).
 """
 import base64
 import hashlib
@@ -19,14 +17,12 @@ def hash_password(pw: str) -> str:
 
 
 def check_password(pw: str, stored: str) -> bool:
-    """Whether pw matches the stored hash (either format); False, never an exception, for a malformed hash."""
+    """Whether pw matches the stored hash; False, never an exception, for a malformed hash."""
     try:
-        parts = stored.split("$")
-        if parts[0] == "scrypt2":
-            n, r, p, s, h = int(parts[1]), int(parts[2]), int(parts[3]), parts[4], parts[5]
-        else:
-            _, s, h = parts
-            n, r, p = 2 ** 14, 8, 1
+        kind, n, r, p, s, h = stored.split("$")
+        if kind != "scrypt2":
+            return False
+        n, r, p = int(n), int(r), int(p)
         got = hashlib.scrypt(pw.encode(), salt=base64.b64decode(s), n=n, r=r, p=p, dklen=32, maxmem=256 * 1024 * 1024)
         return hmac.compare_digest(got, base64.b64decode(h))
     except Exception:

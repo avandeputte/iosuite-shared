@@ -42,6 +42,8 @@ def init() -> bool:
         logging.getLogger("iosuite_shared").error("the Shared ioSuite database (%s:%s/%s) cannot be reached: %s", db.params()["host"], db.params()["port"], db.params()["database"], e)
         return False
     db.error = None
+    if db.params()["password"] == config.DEFAULT_DB_PASSWORD:
+        logging.getLogger("iosuite_shared").warning("the Shared ioSuite database still has the default password; set IOSUITE_DB_PASSWORD in config.env (setup.sh makes one)")
     if config.ADMIN_USER and config.ADMIN_PASSWORD and not any_users():
         create(config.ADMIN_USER, config.ADMIN_PASSWORD, suite_admin=True)
     return True
@@ -219,8 +221,13 @@ def touch_login(user_id: int):
 
 
 def authenticate(name: str, password: str, app: str | None = None):
-    """The account when the password is right (or the account has none), else None; constant time for an unknown name."""
-    r = db.one(f"SELECT {COLS} FROM ios_users WHERE name = %s OR email = %s", ((name or "").strip(), (name or "").strip().lower()))
+    """The account when the password is right (or the account has none), else None; constant time for an unknown name.
+    The name is looked up as a user name first and as an email address only when it has an @ in it, so a user name
+    that equals somebody else's address never picks their account."""
+    s = (name or "").strip()
+    r = db.one(f"SELECT {COLS} FROM ios_users WHERE name = %s", (s,))
+    if not r and "@" in s:
+        r = db.one(f"SELECT {COLS} FROM ios_users WHERE email = %s", (s.lower(),))
     if not r or r.get("service"):
         burn(password)
         return None  # a service account signs in with its app passwords only
@@ -381,3 +388,27 @@ def login_failed(key: str, free: int = LOCK_AFTER) -> int:
 def login_succeeded(key: str):
     with _attempts_lock:
         _attempts.pop(key, None)
+
+
+# The three counters a sign-in attempt is counted under: the pair (this visitor, this name), the name alone (a
+# distributed guess at one account locks it for everyone a while) and the address alone (a scan of many names). The
+# routes, the HTTP Basic / bearer path (Auth._authorization) and ioContacts' LDAP bind all use these three.
+def attempt_keys(visitor: str, name: str) -> tuple:
+    n = (name or "").strip().lower()
+    return f"{visitor}|{n}", f"name|{n}", f"addr|{visitor}"
+
+
+def attempt_wait(visitor: str, name: str) -> int:
+    """Seconds this visitor has to wait before another attempt at this name (0: none)."""
+    return max(login_wait(k) for k in attempt_keys(visitor, name))
+
+
+def attempt_failed(visitor: str, name: str) -> int:
+    """Count a failure; the wait it earned (0: none yet)."""
+    k, nk, ak = attempt_keys(visitor, name)
+    return max(login_failed(k), login_failed(nk, LOCK_AFTER_NAME), login_failed(ak, LOCK_AFTER_NAME * 4))
+
+
+def attempt_succeeded(visitor: str, name: str):
+    for k in attempt_keys(visitor, name):
+        login_succeeded(k)

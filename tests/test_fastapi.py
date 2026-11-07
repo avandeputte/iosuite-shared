@@ -93,15 +93,17 @@ def test_users_admin_api_and_read_only():
     r = c.post("/api/users", json={"name": "bob", "password": "secret123", "role": "editor"})
     assert r.status_code == 200 and r.json()["role"] == "editor"
     uid = r.json()["id"]
-    assert c.post(f"/api/users/{uid}", json={"role": "viewer", "roles": {"ionotes": "admin"}}).status_code == 200
+    assert c.patch(f"/api/users/{uid}", json={"role": "viewer", "roles": {"ionotes": "admin"}}).status_code == 200
     lst = c.get("/api/users").json()
     bob = next(u for u in lst["users"] if u["name"] == "bob")
     assert bob["role"] == "viewer" and bob["roles"] == {"iopix": "viewer", "ionotes": "admin"}
     assert c.post("/api/auth/settings", json={"theme": "dark"}).json() == {"theme": "dark"}
     assert c.post("/api/auth/password", json={"current": "wrong", "password": "newpass123"}).status_code == 403
+    assert c.post("/api/auth/password", json={"current": "secret123", "password": ""}).status_code == 400  # never removes the password
     assert c.post("/api/auth/password", json={"current": "secret123", "password": "newpass123"}).status_code == 200
     assert c.get("/api/private").status_code == 200  # this session went on
-    assert c.post(f"/api/users/{uid}", json={"delete": True}).status_code == 200
+    assert c.post(f"/api/users/{uid}", json={"delete": True}).status_code == 405  # one way to delete: DELETE
+    assert c.delete(f"/api/users/{uid}").status_code == 200
     assert users.get(uid) is None
 
 
@@ -126,6 +128,7 @@ def test_unreachable_auth_database_answers_503_not_open(monkeypatch):
     db._ready = False
     db._retry_at = 0.0
     monkeypatch.setattr(db, "params", lambda: {"host": "203.0.113.1", "port": 1, "database": "x", "user": "x", "password": "x"})
+    db._pool.drain()  # the kept connections still reach the test database
     assert c.get("/api/status").status_code == 200  # the open path still answers
     r = c.get("/api/admin")
     assert r.status_code == 503 and "Shared ioSuite database" in r.json()["detail"]

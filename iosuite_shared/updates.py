@@ -66,10 +66,7 @@ class Updater:
     def local_commit(self) -> str:
         """The installed commit (cached: it only changes through update.sh, which restarts the process)."""
         if self._commit is None:
-            found = self._read_commit()
-            if found == "unknown":
-                return found
-            self._commit = found
+            self._commit = self._read_commit()  # "unknown" is kept too: no git subprocess per status call
         return self._commit
 
     def _read_commit(self) -> str:

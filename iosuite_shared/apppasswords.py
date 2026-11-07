@@ -17,6 +17,8 @@ from iosuite_shared import db, edge, users
 from iosuite_shared.passwords import check_password, hash_password
 
 _cache: dict = {}  # a successful check, for a minute: scrypt is slow on purpose and DAV clients send Basic on every request
+_misses: dict = {}  # a failed check, for a few seconds: a client retrying a stale password does not cost a scrypt each time
+MISS_S = 10
 
 
 DAV = "dav"
@@ -44,7 +46,7 @@ def list_for(user_id: int, app: str) -> list:
 def delete(user_id: int, pid: int):
     gone = [(r["app"], r["prefix"]) for r in db.q("SELECT app, prefix FROM ios_app_passwords WHERE id = %s AND user_id = %s", (pid, user_id))]
     db.ex("DELETE FROM ios_app_passwords WHERE id = %s AND user_id = %s", (pid, user_id))
-    _cache.clear()
+    _cache.clear(); _misses.clear()
     edge.unpublish(gone)
 
 
@@ -56,14 +58,15 @@ def forget_user(user_id: int):
 
 def forget():
     _cache.clear()
+    _misses.clear()
 
 
 def set_scope(app: str, prefix: str, scope: str) -> int:
-    """Give an existing password (found by its 8-hex prefix) a scope: for an app moving its own record of scopes here."""
+    """Give an existing password (found by its 8-hex prefix) a scope (the suite admin panel)."""
     if scope not in SCOPES:
         raise ValueError(f"Unknown app password scope: {scope!r}")
     n = db.ex("UPDATE ios_app_passwords SET scope = %s WHERE app = %s AND prefix = %s", (scope, app, prefix))
-    _cache.clear()
+    _cache.clear(); _misses.clear()
     return n
 
 
@@ -83,8 +86,11 @@ def authenticate_scoped(name: str | None, password: str, app: str):
         return (u, hit[2]) if u else (None, None)
     if not password:
         return None, None
+    missed = _misses.get(key)
+    if missed and missed > time.time():
+        return None, None
     user, scope = None, ""
-    m = re.match(r"^([a-z0-9]+)-([0-9a-f]{8})-", password)  # the word is a hint only (ioc- from before the suite): the row says which app
+    m = re.match(r"^([a-z0-9]+)-([0-9a-f]{8})-", password)  # the word is a hint only: the row says which app
     if m:
         for r in db.q("SELECT * FROM ios_app_passwords WHERE prefix = %s AND app = %s", (m.group(2), app)):
             if check_password(password, r["hash"]):
@@ -102,4 +108,8 @@ def authenticate_scoped(name: str | None, password: str, app: str):
         if len(_cache) > 500:
             _cache.clear()
         _cache[key] = (time.time() + 60, user["id"], scope)
+    else:
+        if len(_misses) > 500:
+            _misses.clear()
+        _misses[key] = time.time() + MISS_S
     return user, (scope if user else None)

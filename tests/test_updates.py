@@ -43,6 +43,8 @@ def test_commit_from_file_and_check_outcomes(tmp_path, monkeypatch):
     u, _ = make_updater(tmp_path, monkeypatch)
     assert u.local_commit() == "unknown" and u.status()["installed"] == "unknown"
     (tmp_path / "COMMIT").write_text("abcdef0123456789\n")
+    assert u.local_commit() == "unknown"  # cached, "unknown" too: no git subprocess per status call
+    u._commit = None  # as after the restart update.sh does
     assert u.local_commit() == "abcdef0123456789"
 
     u._get_url = github()

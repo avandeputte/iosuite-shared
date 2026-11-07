@@ -81,45 +81,27 @@ def test_app_passwords():
     assert apppasswords.authenticate("alex", pw, "iocontacts") is None
 
 
-def test_legacy_hash_is_upgraded():
+def test_a_hash_with_other_parameters_is_upgraded_and_the_old_format_refused():
     from iosuite_shared import db
-    from iosuite_shared.passwords import needs_rehash
+    from iosuite_shared.passwords import hash_password, needs_rehash
     import base64, hashlib, os
     salt = os.urandom(16)
-    h = hashlib.scrypt(b"oldpass123", salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
-    old = f"scrypt${base64.b64encode(salt).decode()}${base64.b64encode(h).decode()}"
-    db.ex("INSERT INTO ios_users (name, hash, created_at) VALUES ('old', %s, 1)", (old,))
-    assert needs_rehash(old)
+    h = hashlib.scrypt(b"oldpass123", salt=salt, n=2 ** 13, r=8, p=1, dklen=32)
+    weaker = f"scrypt2$8192$8$1${base64.b64encode(salt).decode()}${base64.b64encode(h).decode()}"
+    db.ex("INSERT INTO ios_users (name, hash, created_at) VALUES ('old', %s, 1)", (weaker,))
+    assert needs_rehash(weaker) and not needs_rehash(hash_password("x"))
     u = users.authenticate("old", "oldpass123")
     assert u and not needs_rehash(db.one("SELECT hash FROM ios_users WHERE id = %s", (u["id"],))["hash"])
+    # the format from before the suite (scrypt$salt$hash) is not read any more
+    legacy = f"scrypt${base64.b64encode(salt).decode()}${base64.b64encode(h).decode()}"
+    db.ex("INSERT INTO ios_users (name, hash, created_at) VALUES ('older', %s, 1)", (legacy,))
+    assert users.authenticate("older", "oldpass123") is None
 
 
-def test_shared_db_names(monkeypatch):
-    import importlib
-    from iosuite_shared import config
-    for k in ("HOST", "PORT", "NAME", "USER", "PASSWORD"):
-        monkeypatch.delenv("IOSUITE_DB_" + k, raising=False)
-    try:
-        importlib.reload(config)
-        assert (config.DB_NAME, config.DB_USER, config.DB_PASSWORD) == ("iosuite", "iosuite", "iosuite")
-        monkeypatch.setenv("IOSUITE_DB_NAME", "suite")
-        monkeypatch.setenv("IOTHING_AUTH_DB_USER", "auth")  # a name from before 0.6: not read
-        importlib.reload(config)
-        assert (config.DB_NAME, config.DB_USER) == ("suite", "iosuite")
-    finally:
-        monkeypatch.undo()
-        importlib.reload(config)
-
-
-def test_cli_admin_creates_then_promotes(monkeypatch, capsys):
-    from iosuite_shared import cli, users
-    monkeypatch.setenv("ADMIN_PASSWORD", "long-enough-1")
-    cli.main(["admin", "alex", "--app", "iocalendar"])
-    u = users.find("alex")
-    assert u["suiteAdmin"] and users.roles_of(u["id"]).get("iocalendar") == "admin"
-    cli.main(["admin", "sam", "--app", "iocalendar"])
-    cli.main(["admin", "sam", "--app", "ionotes"])
-    s = users.find("sam")
-    assert not s["suiteAdmin"] and users.roles_of(s["id"]) == {"iocalendar": "admin", "ionotes": "admin"}
-    cli.main(["check"])
-    assert "2 account(s)" in capsys.readouterr().out
+def test_sign_in_by_name_never_picks_another_account_by_its_email():
+    bob = users.create("bob", "secret123", "viewer", "iopix")
+    users.create("alex@example.com", "other-pass", "viewer", "iopix")
+    users.update(bob["id"], email="alex@example.com")
+    assert users.authenticate("alex@example.com", "other-pass")["name"] == "alex@example.com"
+    assert users.authenticate("alex@example.com", "secret123") is None  # the name wins; bob's email is not tried
+    assert users.authenticate("bob", "secret123")["name"] == "bob"

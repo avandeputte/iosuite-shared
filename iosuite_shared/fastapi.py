@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from iosuite_shared import admin as suite_admin, apppasswords, db, proxyauth, sessions, suite, users
@@ -703,6 +703,18 @@ class Auth:
         def api_delete(user_id: int, request: Request):
             call(suite_admin.delete, me(request), user_id)
             return {"ok": True}
+
+        @r.get("/photo-people", dependencies=[access.suite_admin])
+        def api_photo_people(request: Request):
+            """The people in ioPix's People, to link an account to (its person in photos), read from ioPix."""
+            me(request)
+            return suite_admin.photo_people(auth.app)
+
+        @r.get("/photo-people/{person}/face.jpg", dependencies=[access.suite_admin])
+        def api_photo_face(person: int, request: Request):
+            me(request)
+            return Response(call(suite_admin.photo_face, auth.app, person), media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=3600"})
 
         @r.get("/users/{user_id}/sessions", dependencies=[access.suite_admin])
         def api_sessions(user_id: int, request: Request):

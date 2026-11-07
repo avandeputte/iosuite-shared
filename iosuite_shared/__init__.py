@@ -1,8 +1,8 @@
 """iosuite-shared: one user database for the ioThing apps.
 
 Every app (ioPix, ioNotes, ioContacts) signs its users in against the same MariaDB database (the Shared ioSuite database, `iosuite` by default), so one
-account, one password and one session serve the whole suite: signed in at photo.iothing.net is signed in at
-notes.iothing.net. What differs per app is kept per app: the role an account holds there (viewer, editor, admin, or
+account, one password and one session serve the whole suite: signed in at photo.example.com is signed in at
+notes.example.com. What differs per app is kept per app: the role an account holds there (viewer, editor, admin, or
 none), its settings there, and its app passwords.
 
   from iosuite_shared import users, sessions, roles, settings, proxyauth   # the parts

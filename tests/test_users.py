@@ -60,11 +60,11 @@ def test_sessions():
 
 
 def test_cookie_domain(monkeypatch):
-    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "iothing.net")
-    assert sessions.cookie_domain("photo.iothing.net") == "iothing.net"
-    assert sessions.cookie_domain("notes.iothing.net:8610") == "iothing.net"
+    monkeypatch.setattr("iosuite_shared.config.COOKIE_DOMAIN", "example.com")
+    assert sessions.cookie_domain("photo.example.com") == "example.com"
+    assert sessions.cookie_domain("notes.example.com:8610") == "example.com"
     assert sessions.cookie_domain("192.168.1.5:8600") is None
-    assert sessions.cookie_domain("evil-iothing.net") is None
+    assert sessions.cookie_domain("evil-example.com") is None
 
 
 def test_app_passwords():

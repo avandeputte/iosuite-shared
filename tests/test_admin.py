@@ -19,7 +19,7 @@ def make_app():
 
 
 def signed_in(app, name, password):
-    c = TestClient(app, base_url="http://home.iothing.net")
+    c = TestClient(app, base_url="http://home.example.com")
     assert c.post("/api/auth/login", json={"name": name, "password": password}).status_code == 200
     return c
 
@@ -104,7 +104,7 @@ def test_api_suite_admins_only():
     o = c.get("/api/suite-admin").json()
     assert {u["name"] for u in o["users"]} == {"alex", "ann"} and o["me"]
     assert signed_in(app, "ann", "secret123").get("/api/suite-admin").status_code == 403
-    assert TestClient(app, base_url="http://home.iothing.net").get("/api/suite-admin").status_code == 401
+    assert TestClient(app, base_url="http://home.example.com").get("/api/suite-admin").status_code == 401
     r = c.post("/api/suite-admin/users", json={"name": "bob", "password": "secret123", "roles": {"iopix": "editor"}, "listed": False})
     assert r.status_code == 200 and r.json()["roles"] == {"iopix": "editor"} and not r.json()["listed"]
     bob = r.json()["id"]

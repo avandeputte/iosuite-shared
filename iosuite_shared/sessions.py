@@ -1,7 +1,7 @@
 """Sessions shared by every app: a random token in an HttpOnly cookie, its hash in the sessions table.
 
-The cookie is set for COOKIE_DOMAIN when the request's host is under it (photo.iothing.net and
-notes.iothing.net then share it), and for the host alone otherwise (a LAN address or name). A session is renewed
+The cookie is set for COOKIE_DOMAIN when the request's host is under it (photo.example.com and
+notes.example.com then share it), and for the host alone otherwise (a LAN address or name). A session is renewed
 once a day while in use, so a device used at least once a month stays signed in; "sign out everywhere" deletes
 every session of the account.
 """

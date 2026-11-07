@@ -54,11 +54,12 @@ def env_int(name: str, default: int) -> int:
 # IOSUITE_DB_HOST, _PORT, _NAME, _USER, _PASSWORD. By default it is on the same server as the app's own database
 # (DB_HOST, DB_PORT), with database and user `iosuite`.
 PREFIX = "IOSUITE_DB_"
+DEFAULT_DB_PASSWORD = "iosuite"  # a development default; users.init warns while it is in use
 
 
 def shared_db(key: str) -> str:
     defaults = {"HOST": env("DB_HOST", "127.0.0.1"), "PORT": env("DB_PORT", "3306"), "NAME": "iosuite", "USER": "iosuite",
-                "PASSWORD": "iosuite"}
+                "PASSWORD": DEFAULT_DB_PASSWORD}
     return env(PREFIX + key, defaults[key]) if key != "PASSWORD" else os.environ.get(PREFIX + key, defaults[key])
 
 

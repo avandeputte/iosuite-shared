@@ -1,0 +1,45 @@
+# The library's own tests against a MariaDB service, on every push and pull request. The apps pin a commit of this
+# repository; their own CI runs their suites with it.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax checks
+        run: |
+          python -m pip install -q -e ".[test]"
+          python -m pyflakes iosuite_shared tests
+          node --input-type=module --check < iosuite_shared/static/suite-admin.js
+          sh -n templates/update.sh
+      - name: Tests
+        env:
+          IOSUITE_TEST_DB: 127.0.0.1:3306:root:root
+        run: python -m pytest -q -p no:cacheprovider tests
+      - name: Edge worker tests
+        working-directory: cloudflare/edge-auth
+        run: node --test

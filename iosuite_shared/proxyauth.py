@@ -6,8 +6,10 @@ account exists (matched on the account's email address, then its name).
 The header is believed only from the proxy itself, never from anyone who can reach the app directly:
 - Cloudflare Access: with CF_ACCESS_TEAM and CF_ACCESS_AUD set, the signed token Cloudflare adds to every request
   (Cf-Access-Jwt-Assertion) is checked against the team's public keys, and the email comes from it.
-- otherwise: the request must come straight from one of AUTH_PROXY_TRUSTED (addresses or networks; by default this
-  machine only, 127.0.0.1 and ::1), the address the proxy connects from.
+- otherwise: the request must come straight from one of AUTH_PROXY_TRUSTED (addresses or networks), the address the
+  proxy connects from. It has to be set for the header presets: with several apps on one machine, "this machine" would
+  let any local process sign in as anyone. For Cloudflare the token is verified, so the default (127.0.0.1 and ::1,
+  where cloudflared runs) stands.
 
 Settings: kept once for the whole suite in the Shared ioSuite database (ios_settings, app ''), the only place they are
 read from: the start page's Settings › Suite and every app's own Settings change them. config.env and the environment
@@ -70,6 +72,10 @@ class Proxy:
 
     def trusted(self) -> list:
         raw = (self.opt("AUTH_PROXY_TRUSTED") or "").strip() or "127.0.0.1,::1"
+        if self.mode() not in ("off", "cloudflare") and not (self.opt("AUTH_PROXY_TRUSTED") or "").strip():
+            if once("trusted-unset"):
+                log.warning("AUTH_PROXY=%s without AUTH_PROXY_TRUSTED: nobody is signed in through the proxy until the proxy's address is set", self.mode())
+            return []
         out = []
         for part in raw.replace(" ", ",").split(","):
             if part:
@@ -248,6 +254,8 @@ def save_suite(values: dict) -> dict:
     cur.update(changes)
     if (cur["AUTH_PROXY"] or "").lower() == "cloudflare" and bool(cur["CF_ACCESS_TEAM"]) != bool(cur["CF_ACCESS_AUD"]):
         raise ValueError("Cloudflare needs both the team domain and the AUD tag (or neither)")
+    if (cur["AUTH_PROXY"] or "").lower() not in ("", "off", "cloudflare") and not cur["AUTH_PROXY_TRUSTED"]:
+        raise ValueError("A proxy that sends a header needs its address in AUTH_PROXY_TRUSTED (the header is believed from there only)")
     for k, v in changes.items():
         db.set_setting(k.lower(), v, "")
     _cache.clear()
@@ -299,22 +307,50 @@ def _cf_email(token: str, team: str, aud):
     return (claims.get("email") or claims.get("common_name") or "").strip() or None
 
 
-def remember_peer():
-    """uvicorn rewrites the client address from X-Forwarded-For for a trusted proxy (its --forwarded-allow-ips) before
-    the app sees the request; keep the address the connection really came from, which is what proxy sign-in trusts.
-    Call it before the app is created."""
-    try:
-        from uvicorn.middleware import proxy_headers
-    except ImportError:
-        return
-    cls = proxy_headers.ProxyHeadersMiddleware
-    if getattr(cls, "_iothing_peer", False):
-        return
-    original = cls.__call__
+class Forwarded:
+    """ASGI middleware, the outermost layer (Auth.install adds it): keeps the address the connection really came from
+    in scope["iothing.peer"], which is what proxy sign-in and the throttles trust, and then, for a connection from one
+    of `allow` (addresses or networks, or "*"), takes the visitor's address and scheme from X-Forwarded-For and
+    X-Forwarded-Proto the way uvicorn's own proxy-headers middleware does. The apps start uvicorn with
+    proxy_headers=False so that this is the one place the headers are read."""
 
-    async def call(self, scope, receive, send):
+    def __init__(self, app, allow: str = "*"):
+        self.app = app
+        self.any = allow.strip() == "*"
+        self.nets = []
+        for part in ("" if self.any else allow).replace(" ", ",").split(","):
+            if part:
+                try:
+                    self.nets.append(ipaddress.ip_network(part, strict=False))
+                except ValueError:
+                    log.warning("FORWARDED_ALLOW_IPS: %r is not an address or network", part)
+
+    def allows(self, peer: str) -> bool:
+        if self.any:
+            return True
+        try:
+            ip = ipaddress.ip_address((peer or "").split("%")[0])
+        except ValueError:
+            return False
+        if ip.version == 6 and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        return any(ip in n for n in self.nets)
+
+    async def __call__(self, scope, receive, send):
         if scope.get("type") in ("http", "websocket") and scope.get("client"):
-            scope["iothing.peer"] = scope["client"][0]
-        return await original(self, scope, receive, send)
-    cls.__call__ = call
-    cls._iothing_peer = True
+            peer = scope["client"][0]
+            scope["iothing.peer"] = peer
+            if self.allows(peer):
+                headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
+                proto = (headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+                if proto in ("http", "https", "ws", "wss"):
+                    scope["scheme"] = proto if scope["type"] == "http" else ("wss" if proto in ("https", "wss") else "ws")
+                hops = [h.strip() for h in (headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+                visitor = None
+                for hop in reversed(hops):  # the right-most address not a proxy of ours is the visitor's
+                    visitor = hop
+                    if not self.allows(hop):
+                        break
+                if visitor:
+                    scope["client"] = (visitor, 0)
+        return await self.app(scope, receive, send)

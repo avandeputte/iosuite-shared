@@ -1,10 +1,13 @@
 """The Shared ioSuite database: connections, the schema, and the suite-wide / per-app settings table.
 
-Every call opens its own connection and closes it (PyMySQL connections are not shared between threads). Rows come
-back as dicts.
+Connections come from a small pool (Pool): a unit of work borrows one, commits or rolls back, and gives it back; a
+request that misses the caches runs several queries without a new TCP handshake and MariaDB sign-in for each. A
+PyMySQL connection is never used by two threads at once. Rows come back as dicts. The apps use Pool for their own
+databases too (`pool = db.Pool(connect)`, `with pool.tx() as con`).
 """
 import json
 import logging
+import queue
 import threading
 import time
 from contextlib import contextmanager
@@ -141,6 +144,7 @@ def configure(**values):
     global _ready
     _overrides.update({k: v for k, v in values.items() if v is not None})
     settings_cache.clear()
+    _pool.drain()  # the kept connections point at the old database
     _ready = False  # another database: its tables are checked again
 
 
@@ -157,18 +161,76 @@ def connect(database: str | None = ...):
                            cursorclass=DictCursor, autocommit=False, connect_timeout=8, read_timeout=60, write_timeout=60)
 
 
-@contextmanager
-def tx():
-    """A connection whose work is committed at the end of the block (rolled back on an exception)."""
-    con = connect()
+class Pool:
+    """A few open connections, reused: `connect` makes a new one (autocommit off), `size` is how many are kept. A
+    borrowed connection is pinged first (and replaced when the server dropped it); one that failed inside a unit of
+    work is closed, not kept. Thread-safe: a connection is in one thread's hands at a time."""
+
+    def __init__(self, connect, size: int = 8):
+        self._connect, self._kept = connect, queue.LifoQueue(maxsize=size)
+
+    def borrow(self):
+        try:
+            con = self._kept.get_nowait()
+        except queue.Empty:
+            return self._connect()
+        try:
+            con.ping(reconnect=False)
+            return con
+        except pymysql.MySQLError:
+            _close(con)
+            return self._connect()
+
+    def give_back(self, con, broken: bool = False):
+        if broken:
+            _close(con)
+            return
+        try:
+            self._kept.put_nowait(con)
+        except queue.Full:
+            _close(con)
+
+    def drain(self):
+        """Close every kept connection (the database changed; shutdown)."""
+        while True:
+            try:
+                _close(self._kept.get_nowait())
+            except queue.Empty:
+                return
+
+    @contextmanager
+    def tx(self):
+        """A connection whose work is committed at the end of the block (rolled back on an exception)."""
+        con = self.borrow()
+        broken = False
+        try:
+            yield con
+            con.commit()
+        except BaseException as e:
+            broken = isinstance(e, (pymysql.err.OperationalError, pymysql.err.InterfaceError))
+            try:
+                if not broken:
+                    con.rollback()
+            except pymysql.MySQLError:
+                broken = True
+            raise
+        finally:
+            self.give_back(con, broken)
+
+
+def _close(con):
     try:
-        yield con
-        con.commit()
-    except BaseException:
-        con.rollback()
-        raise
-    finally:
         con.close()
+    except Exception:  # noqa: BLE001 - already gone
+        pass
+
+
+_pool = Pool(connect)
+
+
+def tx():
+    """A pooled connection whose work is committed at the end of the block (rolled back on an exception)."""
+    return _pool.tx()
 
 
 def q(sql: str, args=None) -> list:

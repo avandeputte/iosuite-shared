@@ -107,7 +107,17 @@ Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, cha
 ## Suite administration
 
 `app.include_router(auth.admin_router())` serves everything in the Shared ioSuite database to **suite admins** at
-`/api/suite-admin` (the start page's Settings › Suite is its screen; module `iosuite_shared.admin`):
+`/api/suite-admin` (module `iosuite_shared.admin`). Its screen ships here too, so every app shows the same one
+(Settings › Suite, suite admins only): `GET /api/suite-admin/ui.js` is one ES module with its own styles that uses the
+app's colour variables when it has them.
+
+```js
+const ui = await import(new URL('api/suite-admin/ui.js', document.baseURI).href);
+ui.mount(el, { sub: 'people', toast, onSub: (s) => history.replaceState(null, '', `#/settings/suite/${s}`) });
+// parts: people, roles, passwords, keys, apps, signin
+```
+
+The routes:
 
 | Route | What |
 |-------|------|

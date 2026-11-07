@@ -121,3 +121,13 @@ def test_api_suite_admins_only():
     assert c.delete(f"/api/suite-admin/users/{bob}").status_code == 200
     assert c.delete("/api/suite-admin/apps/nothere").status_code == 404
     assert sessions
+
+
+def test_panel_module_for_suite_admins():
+    app = make_app()
+    users.create("alex", "secret123", suite_admin=True)
+    users.create("ann", "secret123", "admin", "iosuite")
+    r = signed_in(app, "alex", "secret123").get("/api/suite-admin/ui.js")
+    assert r.status_code == 200 and "javascript" in r.headers["content-type"]
+    assert "export async function mount" in r.text
+    assert signed_in(app, "ann", "secret123").get("/api/suite-admin/ui.js").status_code == 403

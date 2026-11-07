@@ -284,11 +284,8 @@ Every database in the suite follows the same rules, so the apps read alike and c
 Names a standard already gives are kept where a column holds that standard's field: iCalendar (`dtstart`, `rrule`),
 vCard (`fn`), HealthKit (`start_date`), digiKam (ioPix's copy of the library).
 
-`iosuite_shared.schema` has what the apps need for it: `rename(cur, tables, columns, indexes)` renames what still has
-an old name (RENAME TABLE / COLUMN / INDEX: instant, every row kept; nothing on a database already up to date), and
-`ensure_version_table` / `current_version` / `record_version` keep `<prefix>_schema_version`. 0.8.0 renamed this
-library's own tables (`users` -> `ios_users`, `suite_apps` -> `ios_apps`, `k`/`v` -> `name`/`value`, `created` ->
-`created_at`...) at the first start; every app on a server has to run a version built on 0.8.0 from then on.
+`iosuite_shared.schema` has what the apps need for it: `tables` / `columns` / `indexes` say what a database has, and
+`ensure_version_table` / `current_version` / `record_version` keep `<prefix>_schema_version`.
 
 ## App password scopes
 
@@ -373,13 +370,7 @@ iosuite-shared create alex --email a@b.c --suite-admin
 iosuite-shared role alex ionotes editor
 iosuite-shared password alex
 iosuite-shared edge [--apply]                # the edge check's KV namespace vs the app passwords (below)
-iosuite-shared migrate --iopix sqlite:///…/viewer.db --ionotes mysql://notes:pw@host/notes --iocontacts mysql://… [--apply]
 ```
-
-`migrate` reads each app's own user table and folds them into one: matched by email, then name; the first source
-wins a password conflict (iopix, then ionotes, then ioContacts); an admin everywhere becomes a suite admin. Without
-`--apply` it only prints the plan. With it, the apps' tables that point at user ids are rewritten to the shared ids
-and the old user tables are renamed `*_migrated`, not dropped.
 
 ### Several apps in one machine or container: `install`
 

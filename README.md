@@ -101,6 +101,28 @@ the ionotes/iocontacts ones (which copied them) keep working.
 Per-user data: `users.get_settings(uid, app)`, `users.set_settings(uid, app, changes)`, and for anything else
 `users.get_value / set_value(uid, app, key, value)` (JSON values).
 
+## Suite administration
+
+`app.include_router(auth.admin_router())` serves everything in the Shared ioSuite database to **suite admins** at
+`/api/suite-admin` (the start page's Settings › Suite is its screen; module `iosuite_shared.admin`):
+
+| Route | What |
+|-------|------|
+| `GET /api/suite-admin` | `{apps, users, roles, defaultRoles, me}`: every app the database knows (the registered ones, plus keys only seen in roles, settings or app passwords: `registered: false`) with `defaultRole`, `requireLogin` and counts; every account with `roles` (explicit, per app), `effective` (the role it holds in each app), `appPasswords`, `sessions`, `lastSeen` |
+| `POST /api/suite-admin/users` | a new account: `{name, password ('': one-click viewer), email, displayName, suiteAdmin, listed, roles: {app: role}}` |
+| `PATCH /api/suite-admin/users/{id}` | any of those; `roles: {app: null}` removes the row, so the app's default role applies |
+| `DELETE /api/suite-admin/users/{id}` | the account, everywhere |
+| `GET`/`DELETE /api/suite-admin/users/{id}/sessions` | its sessions; end all, or one with `?session=` |
+| `GET /api/suite-admin/app-passwords?user=&app=` | every app password (never the secret) |
+| `POST /api/suite-admin/app-passwords` | `{userId, app, label, scope}`: a new one for that account, shown once |
+| `PATCH /api/suite-admin/app-passwords/{id}` | `{scope}`: `''` everything, `dav` the app's sync protocols only |
+| `DELETE /api/suite-admin/app-passwords/{id}` | revoke one |
+| `PATCH /api/suite-admin/apps/{app}` | `{defaultRole: none/viewer/editor, requireLogin}` |
+| `DELETE /api/suite-admin/apps/{app}` | off the list (it registers again if it starts); `?data=1` also drops its roles, settings and app passwords |
+
+The usual rules hold: a one-click account is a viewer at most and has no app passwords, the last suite admin stays, and
+the signed-in admin cannot delete their own account, drop their own suite admin or remove their own password here.
+
 ## The status, the error answers, the headers and the body cap
 
 `GET /api/status` answers everyone, sign-in required or not, with the same shape in every app, so the start page, the

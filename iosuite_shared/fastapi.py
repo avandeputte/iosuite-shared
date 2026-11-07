@@ -6,6 +6,7 @@ dependencies that say who may call a route, and the routers with the sign-in and
     @router.get("/api/x", dependencies=[auth.access.admin])
     app.include_router(auth.router())        # /api/auth/* : login, accounts, logout, logout_all, me, settings, password, setup
     app.include_router(auth.users_router())  # /api/users  : list, create, change, delete (admins of this app)
+    app.include_router(auth.admin_router())  # /api/suite-admin: every account, role, app password, session and app (suite admins)
     app.include_router(auth.status_router(updater, extra=...))   # GET /api/status, public, the same shape in every app
     app.include_router(auth.server_router(updater, log_file=...)) # GET/POST /api/server, GET /api/log (admins)
     auth.install(app, limit_for=...)         # 400 for bad input, the security headers, no-store on the API, the body cap
@@ -22,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from iosuite_shared import apppasswords, db, sessions, suite, users
+from iosuite_shared import admin as suite_admin, apppasswords, db, sessions, suite, users
 from iosuite_shared.proxyauth import Proxy, authlog, peer_of, remember_peer, seen
 
 ACCESS_ROLES = ("public", "signed_in", "editor", "admin", "suite_admin")
@@ -624,6 +625,114 @@ class Auth:
                 auth._delete(auth.current_user(request), user_id)
             except ValueError as e:
                 raise HTTPException(400, str(e))
+            return {"ok": True}
+
+        return r
+
+    def admin_router(self) -> APIRouter:
+        """Suite administration (suite admins only), everything in the Shared ioSuite database at /api/suite-admin/*:
+        accounts with their role in every app, every app password, sessions, and the apps with their access settings
+        (iosuite_shared.admin)."""
+        auth, access = self, self.access
+        r = APIRouter(prefix="/api/suite-admin")
+
+        def call(fn, *a, **kw):
+            try:
+                return fn(*a, **kw)
+            except LookupError as e:
+                raise HTTPException(404, str(e).strip("'\""))
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+
+        def me(request: Request):
+            u = auth.current_user(request)
+            if users.any_users() and not users.is_suite_admin(u):
+                raise HTTPException(403, "Suite admins only")
+            return u
+
+        @r.get("", dependencies=[access.suite_admin])
+        def api_overview(request: Request):
+            me(request)
+            return {**suite_admin.overview(), "me": (auth.current_user(request) or {}).get("id")}
+
+        @r.post("/users", dependencies=[access.suite_admin])
+        async def api_create(request: Request):
+            body = await json_body(request)
+            u = await run_in_threadpool(call, suite_admin.create, me(request), body)
+            authlog.info("suite admin: account %s made by %s", u["name"], (auth.current_user(request) or {}).get("name"))
+            return u
+
+        @r.patch("/users/{user_id}", dependencies=[access.suite_admin])
+        async def api_update(user_id: int, request: Request):
+            body = await json_body(request)
+            u = await run_in_threadpool(call, suite_admin.update, me(request), user_id, body)
+            if self.on_update:
+                self.on_update(user_id, body)
+            return u
+
+        @r.delete("/users/{user_id}", dependencies=[access.suite_admin])
+        def api_delete(user_id: int, request: Request):
+            call(suite_admin.delete, me(request), user_id)
+            return {"ok": True}
+
+        @r.get("/users/{user_id}/sessions", dependencies=[access.suite_admin])
+        def api_sessions(user_id: int, request: Request):
+            me(request)
+            if not users.get(user_id):
+                raise HTTPException(404, "No such user")
+            return {"sessions": sessions.list_sessions(user_id, request.cookies.get(sessions.COOKIE))}
+
+        @r.delete("/users/{user_id}/sessions", dependencies=[access.suite_admin])
+        def api_end_sessions(user_id: int, request: Request):
+            """Every session of the account, or one with ?session=<id>."""
+            me(request)
+            call(suite_admin.end_sessions, user_id, request.query_params.get("session"))
+            return {"ok": True}
+
+        @r.get("/app-passwords", dependencies=[access.suite_admin])
+        def api_app_passwords(request: Request, user: int = None, app: str = None):
+            me(request)
+            return {"items": call(suite_admin.app_passwords, user, app)}
+
+        @r.post("/app-passwords", dependencies=[access.suite_admin])
+        async def api_new_app_password(request: Request):
+            body = await json_body(request)
+            me(request)
+            try:
+                uid = int(body.get("userId"))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "userId is needed")
+            return await run_in_threadpool(call, suite_admin.new_app_password, uid, body.get("app"), str(body.get("label") or ""),
+                                           str(body.get("scope") or ""))
+
+        @r.patch("/app-passwords/{pid}", dependencies=[access.suite_admin])
+        async def api_app_password_scope(pid: int, request: Request):
+            body = await json_body(request)
+            me(request)
+            call(suite_admin.set_app_password_scope, pid, str(body.get("scope") or ""))
+            return {"ok": True}
+
+        @r.delete("/app-passwords/{pid}", dependencies=[access.suite_admin])
+        def api_revoke_app_password(pid: int, request: Request):
+            me(request)
+            call(suite_admin.revoke_app_password, pid)
+            return {"ok": True}
+
+        @r.patch("/apps/{key}", dependencies=[access.suite_admin])
+        async def api_app(key: str, request: Request):
+            body = await json_body(request)
+            me(request)
+            return call(suite_admin.set_app, key, default_role=body.get("defaultRole"),
+                        require_login=None if body.get("requireLogin") is None else bool(body["requireLogin"]))
+
+        @r.delete("/apps/{key}", dependencies=[access.suite_admin])
+        def api_forget_app(key: str, request: Request, data: int = 0):
+            """Take an app off the list; ?data=1 also removes its roles, settings and app passwords."""
+            me(request)
+            if not call(suite_admin.forget_app, key, bool(data)):
+                raise HTTPException(404, "No such app")
+            if key == auth.app:
+                auth._registered = False
             return {"ok": True}
 
         return r

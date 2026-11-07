@@ -254,6 +254,19 @@ an old name (RENAME TABLE / COLUMN / INDEX: instant, every row kept; nothing on 
 library's own tables (`users` -> `ios_users`, `suite_apps` -> `ios_apps`, `k`/`v` -> `name`/`value`, `created` ->
 `created_at`...) at the first start; every app on a server has to run a version built on 0.8.0 from then on.
 
+## Edge check of app passwords (Cloudflare Worker, optional)
+
+Behind Cloudflare, a Worker on `/dav*` can turn a wrong app password away before it reaches the server. The apps keep
+a Workers KV namespace up to date with a SHA-256 of each app password (never an account password), when it is made,
+on its first use after each start, and when it or its account is deleted. It is off unless all three are set:
+
+```
+CF_KV_ACCOUNT_ID=…  CF_KV_NAMESPACE_ID=…  CF_KV_API_TOKEN=…   # token: Account › Workers KV Storage › Edit
+```
+
+The Worker, its `wrangler.toml`, the rollout (monitor, then enforce) and a WAF rate-limit rule are in
+[cloudflare/edge-auth/](cloudflare/edge-auth/README.md).
+
 ## Command line
 
 ```
@@ -265,6 +278,7 @@ iosuite-shared list
 iosuite-shared create alex --email a@b.c --suite-admin
 iosuite-shared role alex ionotes editor
 iosuite-shared password alex
+iosuite-shared edge [--apply]                # the edge check's KV namespace vs the app passwords (below)
 iosuite-shared migrate --iopix sqlite:///…/viewer.db --ionotes mysql://notes:pw@host/notes --iocontacts mysql://… [--apply]
 ```
 

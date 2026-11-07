@@ -28,15 +28,14 @@ import tempfile
 from pathlib import Path
 
 # name -> how to fetch and set it up. `db` is the app's default database name; `env` the prefix of the environment
-# variables its setup.sh reads the secrets from (PFX_DB, PFX_SUITE_DB, PFX_ADMIN); `subdir` the folder of the
-# repository that holds the app when it is not the root.
+# variables its setup.sh reads the secrets from (PFX_DB, PFX_SUITE_DB, PFX_ADMIN).
 APPS = {
     "iosuite": dict(label="ioSuite", repo="avandeputte/iosuite", db="suite", port=8630, env="IOSUITE"),
     "iocalendar": dict(label="ioCalendar", repo="avandeputte/iocalendar", db="calendar", port=8620, env="IOCALENDAR"),
     "iocontacts": dict(label="ioContacts", repo="avandeputte/iocontacts", db="contacts", port=8640, env="IOCONTACTS"),
     "ionotes": dict(label="ioNotes", repo="avandeputte/ionotes", db="notes", port=8610, env="IONOTES", data=True,
                     extra=["--features", "none"]),
-    "iohealth": dict(label="ioHealth", repo="avandeputte/ioHealth", db="health", port=47800, env="IOHEALTH", subdir="server"),
+    "iohealth": dict(label="ioHealth", repo="avandeputte/iohealth", db="health", port=8650, env="IOHEALTH"),
     "iopix": dict(label="ioPix", repo="avandeputte/iopix", db="iopix", port=8600, env="IOPIX", data=True,
                   extra=["--no-digikam", "--features", "none"], photos=True),
 }
@@ -162,7 +161,7 @@ def say(msg):
 
 
 def fetch(name, target, log=print):
-    """A shallow clone of the app's repository into TARGET (its `subdir` when it has one), COMMIT written, .git removed:
+    """A shallow clone of the app's repository into TARGET, COMMIT written, .git removed:
     the layout the Proxmox installers make, which the app's update.sh keeps up to date."""
     a = APPS[name]
     url = os.environ.get(f"{a['env']}_REPO") or f"https://github.com/{a['repo']}"
@@ -172,9 +171,8 @@ def fetch(name, target, log=print):
     try:
         subprocess.run(["git", "clone", "-q", "--depth", "1", url, str(tmp)], check=True)
         sha = subprocess.run(["git", "-C", str(tmp), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-        src = tmp / a["subdir"] if a.get("subdir") else tmp
         shutil.rmtree(tmp / ".git", ignore_errors=True)
-        shutil.copytree(src, target, symlinks=True, dirs_exist_ok=True)
+        shutil.copytree(tmp, target, symlinks=True, dirs_exist_ok=True)
         (target / "COMMIT").write_text(sha + "\n")
         log(f"  fetched {a['label']} {sha[:7]} into {target}")
     finally:

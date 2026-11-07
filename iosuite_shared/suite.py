@@ -29,7 +29,7 @@ import time
 from iosuite_shared import config, db
 
 # Every app's default port: different for each, so all of them can run on one host. The apps' tests check theirs.
-PORTS = {"iopix": 8600, "ionotes": 8610, "iocalendar": 8620, "iosuite": 8630, "iocontacts": 8640, "iohealth": 47800}
+PORTS = {"iopix": 8600, "ionotes": 8610, "iocalendar": 8620, "iosuite": 8630, "iocontacts": 8640, "iohealth": 8650}
 
 FIELDS = ("name", "description", "version", "color", "icon")
 # Where every app serves its mark (static/icons/mark.svg in its repo, the web app's files under /static/): the same in

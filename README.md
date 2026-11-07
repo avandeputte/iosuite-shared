@@ -62,7 +62,7 @@ Default ports, different for every app so that all of them can run on one host (
 
 | ioPix | ioNotes | ioCalendar | ioSuite | ioContacts | ioHealth |
 |-------|---------|------------|---------|------------|----------|
-| 8600  | 8610    | 8620       | 8630    | 8640 (LDAP 3890) | 47800 |
+| 8600  | 8610    | 8620       | 8630    | 8640 (LDAP 3890) | 8650 |
 
 The database is the **Shared ioSuite database**: accounts, sessions, roles and app passwords, and the suite-wide
 settings and list of apps. Its default name and account are `iosuite`; `IOSUITE_DB_*` are the only variables read.

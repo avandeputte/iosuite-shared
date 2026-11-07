@@ -93,3 +93,19 @@ def test_cloudflare_service_token_goes_along():
     assert {k["name"] for k in admin.keys("_suite")} == {"cf_access_client_id", "cf_access_client_secret"}
     links.forget("iocontacts")
     assert admin.app_passwords() == []
+
+
+def test_internal_address_first_then_public(monkeypatch):
+    suite.register("iopix", name="ioPix", url="https://photo.example.com", version="1", internal_url="http://192.168.1.5:8600")
+    assert links.addresses("iopix") == ["http://192.168.1.5:8600", "https://photo.example.com"]
+    assert links.url("iopix") == "https://photo.example.com"
+    seen = []
+
+    def fake(req, timeout=None):
+        seen.append(req.full_url)
+        if "192.168" in req.full_url:
+            raise urllib.error.URLError("refused")
+        return io.BytesIO(b'{"ok": 2}')
+    monkeypatch.setattr("urllib.request.urlopen", fake)
+    assert links.json("iocontacts", "iopix", "/api/meta") == {"ok": 2}
+    assert seen == ["http://192.168.1.5:8600/api/meta", "https://photo.example.com/api/meta"]

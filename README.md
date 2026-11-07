@@ -318,7 +318,8 @@ still wins inside the app; the panel shows that (`envSet`).
 ## App links
 
 One app reading from another needs no setup (`iosuite_shared.links`): the other app is found in the suite's list
-(its public address; the internal one is never used), and the reader signs in as its own **service account**
+(called at its internal address when it recorded one, else, or when that does not answer, at its public one;
+`links.url()` is the public one, for links people click), and the reader signs in as its own **service account**
 (`users.service_account(app)`: `<app>-app`, on no sign-in screen, no password anyone knows, viewer in the other app)
 with an app password of the other app with scope `read`. Both are made on first use; the password is kept in
 `ios_credentials` (hidden from the keys list), and made again when the other app answers 401 (revoked on the panel).

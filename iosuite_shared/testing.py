@@ -144,10 +144,22 @@ def check_conventions(root, app: str, version: str, config, port_files=("Dockerf
             assert f"{app}.env" not in text and not re.search(r"(?<![\w.])\.env\b", text), f"{f} still names a settings file other than config.env"
 
 
+def api_routes(app) -> list:
+    """Every API route of the FastAPI app as (methods, full path, route), through included routers. FastAPI 0.162
+    keeps an included router as one entry of app.routes, so a plain walk of app.routes sees none of its routes (and
+    a check over them passes with nothing checked)."""
+    from fastapi.routing import APIRoute
+    try:
+        from fastapi.routing import iter_route_contexts
+    except ImportError:  # before 0.162: app.routes is flat
+        return [(set(r.methods), r.path, r) for r in app.routes if isinstance(r, APIRoute)]
+    return [(set(c.methods or ()), c.path, c.original_route) for c in iter_route_contexts(app.routes) if isinstance(c.original_route, APIRoute)]
+
+
 def check_access_declared(app, declared, ignore=("/api/openapi.json", "/api/docs"), prefix="/api/") -> None:
     """Every API route of the FastAPI app carries exactly one access marker (dependencies=[access.<level>]), so a new
     route can never be open to everyone by mistake. `declared` is the app's access.declared (Auth.access.declared)."""
-    from fastapi.routing import APIRoute
-    missing = [f"{sorted(r.methods)} {r.path}" for r in app.routes if isinstance(r, APIRoute) and r.path.startswith(prefix)
-               and r.path not in ignore and declared(r) is None]
+    routes = [(m, p, r) for m, p, r in api_routes(app) if p.startswith(prefix) and p not in ignore]
+    assert routes, f"no API routes under {prefix}: nothing was checked"
+    missing = [f"{sorted(m)} {p}" for m, p, r in routes if declared(r) is None]
     assert not missing, "routes without exactly one access marker (dependencies=[access.<level>]):\n" + "\n".join(missing)

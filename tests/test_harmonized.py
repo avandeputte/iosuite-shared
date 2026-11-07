@@ -269,3 +269,28 @@ def test_updater_is_what_status_router_expects(tmp_path):
     for name in ("local_commit", "auto_check_enabled", "available", "can_run", "in_docker"):
         assert callable(getattr(u, name))
     assert json.dumps(u.status())
+
+
+def test_check_access_declared_sees_through_included_routers():
+    """FastAPI 0.162 keeps an included router as one entry of app.routes: the check must still reach its routes, and
+    must never pass because it found nothing to check."""
+    from fastapi import APIRouter, FastAPI
+    from iosuite_shared.fastapi import Auth
+    auth = Auth("t", register=False)
+    r = APIRouter()
+
+    @r.get("/open")
+    def open_route():
+        return {}
+
+    @r.get("/closed", dependencies=[auth.access.admin])
+    def closed_route():
+        return {}
+    app = FastAPI()
+    app.include_router(r, prefix="/api")
+    assert {p for _m, p, _r in testing.api_routes(app)} >= {"/api/open", "/api/closed"}
+    with pytest.raises(AssertionError, match="/api/open"):
+        testing.check_access_declared(app, auth.access.declared)
+    with pytest.raises(AssertionError, match="nothing was checked"):
+        testing.check_access_declared(app, auth.access.declared, prefix="/nothing/")
+    testing.check_access_declared(app, auth.access.declared, ignore=("/api/open",))

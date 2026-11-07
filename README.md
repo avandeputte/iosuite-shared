@@ -285,7 +285,7 @@ uninstalled one (it comes back if it starts again).
 `iosuite_shared.testing` gives every app's suite its MariaDB (`server()`, `fresh_database(name)`, `auth_env(name)`:
 Docker, or `IOSUITE_TEST_DB=host:port:user:password`), `clean_shared_tables(auth)` to empty the shared tables between
 tests, and two checks every app runs: `check_conventions(root, app, version, config)` (the suite's port, one version,
-`config.env`) and `check_access_declared(app, access.declared)` (every API route carries an access marker).
+`config.env`) and `check_access_declared(app, access.declared)` (every API route carries an access marker; it walks included routers too, and fails when it finds no route to check). `api_routes(app)` lists every API route with its full path.
 
 ## Database naming convention
 

@@ -6,7 +6,8 @@ ioContacts, ioContacts' faces from ioPix.
         r = links.get("iocalendar", "iocontacts", "/api/contacts?q=ann")   # a urllib response; links.json(...) for JSON
     links.url("iocontacts")                                  # its address, for links people click
 
-The other app is found in the suite's list (ios_apps). The server calls it at its address inside the network (the
+The other app is found in the suite's list (ios_apps). The server calls it on localhost when it runs on the same
+machine (its recorded internal address is one of this machine's), then at its address inside the network (the
 internal URL it records at every start) when it has one, and at its public address (PUBLIC_URL, else the one it was
 last reached at) otherwise, or when the internal one does not answer; url() is the public one, for links people
 click. The reader signs in as its own service account (users.service_account:
@@ -18,8 +19,10 @@ token (keys `cf_access_client_id` and `cf_access_client_secret` of the whole sui
 goes with every request.
 """
 import base64
+import ipaddress
 import json as _json
 import logging
+import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -55,14 +58,42 @@ def available(provider: str) -> bool:
     return bool(url(provider))
 
 
+def _this_machine(host: str) -> bool:
+    """Whether the address is one of this machine's own (it can be bound to here)."""
+    try:
+        ip = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False  # a name: not guessed at
+    if ip.is_loopback:
+        return True
+    try:
+        with socket.socket(socket.AF_INET6 if ip.version == 6 else socket.AF_INET, socket.SOCK_DGRAM) as sk:
+            sk.bind((str(ip), 0))
+        return True
+    except OSError:
+        return False
+
+
+def _local(internal: str | None) -> str | None:
+    """The other app on localhost, when its internal address is on this machine: same scheme and port."""
+    if not internal:
+        return None
+    u = urllib.parse.urlsplit(internal)
+    if not u.hostname or not u.port or not _this_machine(u.hostname):
+        return None
+    return f"{u.scheme}://{'[::1]' if ':' in u.hostname else '127.0.0.1'}:{u.port}"
+
+
 def addresses(provider: str) -> list:
-    """Where the server calls the other app, in order: its internal address (when recorded), then its public one."""
+    """Where the server calls the other app, in order: localhost (on the same machine), its internal address (when
+    recorded), then its public one."""
     try:
         r = suite.get(provider)
     except Exception:  # noqa: BLE001  the shared database is away
         return []
+    internal = (r or {}).get("internalUrl")
     out = []
-    for u in ((r or {}).get("internalUrl"), (r or {}).get("url")):
+    for u in (_local(internal), internal, (r or {}).get("url")):
         u = (u or "").rstrip("/")
         if u and u not in out and urllib.parse.urlsplit(u).scheme in ("http", "https"):
             out.append(u)

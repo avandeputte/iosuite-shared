@@ -109,3 +109,15 @@ def test_internal_address_first_then_public(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake)
     assert links.json("iocontacts", "iopix", "/api/meta") == {"ok": 2}
     assert seen == ["http://192.168.1.5:8600/api/meta", "https://photo.example.com/api/meta"]
+
+
+def test_same_machine_goes_over_localhost(monkeypatch):
+    suite.register("iocontacts", name="ioContacts", url="https://contacts.example.com", version="1", internal_url="http://127.0.0.1:8640")
+    assert links.addresses("iocontacts") == ["http://127.0.0.1:8640", "https://contacts.example.com"]
+    monkeypatch.setattr(links, "_this_machine", lambda host: host == "192.168.1.9")
+    suite.register("iocontacts", name="ioContacts", url="https://contacts.example.com", version="1", internal_url="http://192.168.1.9:8640")
+    assert links.addresses("iocontacts") == ["http://127.0.0.1:8640", "http://192.168.1.9:8640", "https://contacts.example.com"]
+    monkeypatch.setattr(links, "_this_machine", lambda host: False)
+    assert links.addresses("iocontacts") == ["http://192.168.1.9:8640", "https://contacts.example.com"]
+    monkeypatch.undo()
+    assert not links._this_machine("203.0.113.7") and links._this_machine("127.0.0.1") and not links._this_machine("a.lan")

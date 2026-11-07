@@ -86,6 +86,7 @@ SCHEMA = [
         hash VARCHAR(255) NOT NULL,
         created_at BIGINT NOT NULL,
         last_used_at BIGINT NULL,
+        scope VARCHAR(32) NOT NULL DEFAULT '',
         INDEX idx_ios_app_passwords_prefix (prefix),
         INDEX idx_ios_app_passwords_user (user_id),
         FOREIGN KEY (user_id) REFERENCES ios_users(id) ON DELETE CASCADE
@@ -143,6 +144,8 @@ UPGRADES = [
     "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS last_seen_at BIGINT NULL",
     "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS last_ip VARCHAR(64) NULL",
     "ALTER TABLE ios_apps ADD COLUMN IF NOT EXISTS internal_url VARCHAR(512) NULL AFTER seen_url",
+    # 0.15.0: what an app password may reach ('' everything; 'dav' the app's sync protocols only, see apppasswords)
+    "ALTER TABLE ios_app_passwords ADD COLUMN IF NOT EXISTS scope VARCHAR(32) NOT NULL DEFAULT '' AFTER last_used_at",
 ]
 
 

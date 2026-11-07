@@ -174,20 +174,20 @@ def delete(me, user_id: int):
 
 # ---- app passwords
 def app_passwords(user_id: int = None, app: str = None) -> list:
-    """Every app password (never the secret): id, userId, userName, app, appName, label, created, lastUsed."""
+    """Every app password (never the secret): id, userId, userName, app, appName, label, scope ('' everything, 'dav' sync only), created, lastUsed."""
     where, args = [], []
     if user_id is not None:
         where.append("p.user_id = %s"); args.append(user_id)
     if app:
         where.append("p.app = %s"); args.append(clean_app(app))
-    rows = db.q("SELECT p.id, p.user_id, p.app, p.label, p.created_at, p.last_used_at, u.name, u.display_name, a.name AS app_name "
+    rows = db.q("SELECT p.id, p.user_id, p.app, p.label, p.scope, p.created_at, p.last_used_at, u.name, u.display_name, a.name AS app_name "
                 "FROM ios_app_passwords p JOIN ios_users u ON u.id = p.user_id LEFT JOIN ios_apps a ON a.app = p.app"
                 + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY lower(u.name), p.app, p.created_at", tuple(args))
     return [{"id": r["id"], "userId": r["user_id"], "userName": r["name"], "displayName": r["display_name"] or r["name"], "app": r["app"],
-             "appName": r["app_name"] or r["app"], "label": r["label"], "created": r["created_at"], "lastUsed": r["last_used_at"]} for r in rows]
+             "appName": r["app_name"] or r["app"], "label": r["label"], "scope": r["scope"] or "", "created": r["created_at"], "lastUsed": r["last_used_at"]} for r in rows]
 
 
-def new_app_password(user_id: int, app: str, label: str) -> dict:
+def new_app_password(user_id: int, app: str, label: str, scope: str = "") -> dict:
     """A new app password for an account in an app (shown once)."""
     u = users.get(user_id)
     if not u:
@@ -195,8 +195,8 @@ def new_app_password(user_id: int, app: str, label: str) -> dict:
     if u["passwordless"]:
         raise ValueError("A one-click account cannot have app passwords; give it a password first")
     app = clean_app(app)
-    pw = apppasswords.create(user_id, app, (label or "Device").strip()[:128] or "Device")
-    return {"password": pw, "name": u["name"], "app": app}
+    pw = apppasswords.create(user_id, app, (label or "Device").strip()[:128] or "Device", scope or "")
+    return {"password": pw, "name": u["name"], "app": app, "scope": scope or ""}
 
 
 def revoke_app_password(pid: int):
@@ -217,4 +217,5 @@ def end_sessions(user_id: int, session_id: str = None):
 
 
 def overview() -> dict:
-    return {"apps": apps(), "users": accounts(), "roles": list(users.ROLES), "defaultRoles": list(DEFAULT_ROLES)}
+    return {"apps": apps(), "users": accounts(), "roles": list(users.ROLES), "defaultRoles": list(DEFAULT_ROLES),
+            "scopes": list(apppasswords.SCOPES)}

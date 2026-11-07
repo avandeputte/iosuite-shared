@@ -702,7 +702,8 @@ class Auth:
                 uid = int(body.get("userId"))
             except (TypeError, ValueError):
                 raise HTTPException(400, "userId is needed")
-            return await run_in_threadpool(call, suite_admin.new_app_password, uid, body.get("app"), str(body.get("label") or ""))
+            return await run_in_threadpool(call, suite_admin.new_app_password, uid, body.get("app"), str(body.get("label") or ""),
+                                           str(body.get("scope") or ""))
 
         @r.delete("/app-passwords/{pid}", dependencies=[access.suite_admin])
         def api_revoke_app_password(pid: int, request: Request):

@@ -12,7 +12,7 @@ the whole suite. Signed in at `photo.example.com`, a person is signed in at `not
 | name, display name, email, password    | role: `none`, `viewer`, `editor` or `admin`               |
 | sessions (the `iothing_session` cookie): where each began and was last seen (address, through Cloudflare or not, web or which app, User-Agent) | settings (display preferences) and other per-user data    |
 | suite admin flag, sign-in list flag    | app passwords (for CardDAV, LDAP, MCP clients…)           |
-| proxy sign-in (Cloudflare Access…)     | optional overrides of the proxy settings, `require_login`, `default_role` |
+| proxy sign-in (Cloudflare Access…)     | `require_login`, `default_role` |
 
 A **suite admin** is admin in every app and manages accounts. An app's **admin** manages that app's settings and
 the accounts' roles there. An account without a role row in an app holds the app's `default_role` (`viewer` unless
@@ -69,9 +69,8 @@ settings and list of apps. Its default name and account are `iosuite`; `IOSUITE_
 
 Proxy sign-in (`AUTH_PROXY`, `AUTH_PROXY_HEADER`, `AUTH_PROXY_TRUSTED`, `AUTH_PROXY_CREATE`, `CF_ACCESS_TEAM`,
 `CF_ACCESS_AUD`) is kept once for the whole suite in the Shared ioSuite database and read only from there; it is changed
-in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`). Values
-in an app's `config.env` or environment and older per-app values are ignored: on the app's first request they fill a
-suite-wide setting that is still empty (AUD tags are added), then the `config.env` lines are commented out.
+in the start page's Settings › Suite (`/api/suite-admin/proxy`) or any app's Settings (`POST /api/auth/proxy`).
+`config.env` and the environment are never read for them.
 `CF_ACCESS_AUD` takes one AUD tag or several (comma-separated): one Cloudflare Access application covering
 `*.example.com` is the simple setup (one AUD), an application per host works too (one AUD each).
 
@@ -284,11 +283,8 @@ Every database in the suite follows the same rules, so the apps read alike and c
 Names a standard already gives are kept where a column holds that standard's field: iCalendar (`dtstart`, `rrule`),
 vCard (`fn`), HealthKit (`start_date`), digiKam (ioPix's copy of the library).
 
-`iosuite_shared.schema` has what the apps need for it: `rename(cur, tables, columns, indexes)` renames what still has
-an old name (RENAME TABLE / COLUMN / INDEX: instant, every row kept; nothing on a database already up to date), and
-`ensure_version_table` / `current_version` / `record_version` keep `<prefix>_schema_version`. 0.8.0 renamed this
-library's own tables (`users` -> `ios_users`, `suite_apps` -> `ios_apps`, `k`/`v` -> `name`/`value`, `created` ->
-`created_at`...) at the first start; every app on a server has to run a version built on 0.8.0 from then on.
+`iosuite_shared.schema` has what the apps need for it: `tables` / `columns` / `indexes` say what a database has, and
+`ensure_version_table` / `current_version` / `record_version` keep `<prefix>_schema_version`.
 
 ## App password scopes
 
@@ -314,15 +310,12 @@ Keys and tokens shows and changes them all. Values never leave the server: the p
 
 ```python
 from iosuite_shared import credentials
-credentials.declare("iosuite", [{"name": "ha_token", "label": "Home Assistant token", "hint": "...", "env": "HA_TOKEN"}],
-                    adopt=(db.get_setting, db.set_setting))   # at start; moves a value still in the app's own settings
+credentials.declare("iosuite", [{"name": "ha_token", "label": "Home Assistant token", "hint": "...", "env": "HA_TOKEN"}])  # at start
 token = os.environ.get("HA_TOKEN") or credentials.get("iosuite", "ha_token")
 credentials.put("iosuite", "ha_token", value, by=user["name"])  # '' clears it
 ```
 
-`declare(..., adopt=(get, set))` copies a value found in the app's own settings while the shared one is empty, then
-removes it there; `{"old": "<setting name>"}` on an item when the old name differs. An `env` variable that is set
-still wins inside the app; the panel shows that (`envSet`).
+An `env` variable that is set still wins inside the app; the panel shows that (`envSet`).
 
 ## App links
 
@@ -373,13 +366,7 @@ iosuite-shared create alex --email a@b.c --suite-admin
 iosuite-shared role alex ionotes editor
 iosuite-shared password alex
 iosuite-shared edge [--apply]                # the edge check's KV namespace vs the app passwords (below)
-iosuite-shared migrate --iopix sqlite:///…/viewer.db --ionotes mysql://notes:pw@host/notes --iocontacts mysql://… [--apply]
 ```
-
-`migrate` reads each app's own user table and folds them into one: matched by email, then name; the first source
-wins a password conflict (iopix, then ionotes, then ioContacts); an admin everywhere becomes a suite admin. Without
-`--apply` it only prints the plan. With it, the apps' tables that point at user ids are rewritten to the shared ids
-and the old user tables are renamed `*_migrated`, not dropped.
 
 ### Several apps in one machine or container: `install`
 

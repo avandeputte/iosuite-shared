@@ -1,4 +1,4 @@
-"""iosuite-shared: init | check | list | create | admin | role | password | edge | migrate (see migrate.py) | install (see install.py) | provision (see provision.py).
+"""iosuite-shared: init | check | list | create | admin | role | password | edge | install (see install.py) | provision (see provision.py).
 
 Every app's setup.sh makes its first admin with `iosuite-shared admin NAME --app APP` (the password from ADMIN_PASSWORD,
 else asked for) and checks the Shared ioSuite database with `iosuite-shared check`; run them with the app's config.env
@@ -31,15 +31,6 @@ def main(argv=None):
     e.add_argument("--account-id", default=None, help="store the Cloudflare account id in the Shared ioSuite database")
     e.add_argument("--namespace-id", default=None, help="store the KV namespace id")
     e.add_argument("--token-file", default=None, help="store the API token read from this file ('-': standard input)")
-    m = sub.add_parser("migrate", help="fold the apps' own user tables into the shared database (dry run unless --apply)")
-    m.add_argument("--iopix", help="iopix's viewer database: sqlite:///path/viewer.db or mysql://user:pw@host/db")
-    m.add_argument("--ionotes", help="ionotes' database: mysql://user:pw@host/db or sqlite:///path")
-    m.add_argument("--iocontacts", help="ioContacts' database: mysql://user:pw@host/db")
-    m.add_argument("--apply", action="store_true", help="write the accounts (and remap the apps' own user ids)")
-    m.add_argument("--report", default=None, help="write the report (JSON) here")
-    m.add_argument("--keep-old", action="store_true", help="leave the apps' own user tables in place (old versions keep working); `retire` renames them later")
-    rt = sub.add_parser("retire", help="rename the apps' own user tables to *_migrated (after migrate --keep-old)")
-    rt.add_argument("--iopix"); rt.add_argument("--ionotes"); rt.add_argument("--iocontacts")
     from iosuite_shared import install, provision
     install.add_parser(sub)
     provision.add_parser(sub)
@@ -54,12 +45,6 @@ def main(argv=None):
         return provision.main(a)
 
     from iosuite_shared import users
-    if a.cmd == "migrate":
-        from iosuite_shared import migrate
-        return migrate.run(a)
-    if a.cmd == "retire":
-        from iosuite_shared import migrate
-        return migrate.retire(a)
     users.init()
     if a.cmd == "init":
         print("ok")

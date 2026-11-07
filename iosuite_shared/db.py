@@ -133,64 +133,6 @@ SCHEMA = [
     )""",
 ]
 
-# 0.8.0: the names from before the suite naming convention, renamed once at start (every row kept). Remove once every
-# server has run 0.8.0.
-RENAME_TABLES = {"users": "ios_users", "user_roles": "ios_user_roles", "user_data": "ios_user_data", "sessions": "ios_sessions",
-                 "app_passwords": "ios_app_passwords", "settings": "ios_settings", "suite_apps": "ios_apps"}
-RENAME_COLUMNS = {
-    "ios_users": {"created": "created_at", "last_login": "last_login_at"},
-    "ios_user_data": {"k": "name", "v": "value"},
-    "ios_sessions": {"created": "created_at", "expires": "expires_at", "renewed": "renewed_at", "last_seen": "last_seen_at"},
-    "ios_app_passwords": {"created": "created_at", "last_used": "last_used_at"},
-    "ios_settings": {"k": "name", "v": "value"},
-    "ios_apps": {"registered": "created_at", "updated": "updated_at", "last_seen": "last_seen_at"},
-}
-RENAME_INDEXES = {
-    "ios_users": {"name": "uq_ios_users_name", "email": "uq_ios_users_email"},
-    "ios_sessions": {"user_id": "idx_ios_sessions_user", "expires": "idx_ios_sessions_expires"},
-    "ios_app_passwords": {"prefix": "idx_ios_app_passwords_prefix", "user_id": "idx_ios_app_passwords_user"},
-}
-# columns added since a table was first made (MariaDB: IF NOT EXISTS); schema 2 gave sessions where they began
-UPGRADES = [
-    "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS ip VARCHAR(64) NULL",
-    "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS cloudflare TINYINT NOT NULL DEFAULT 0",
-    "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS client VARCHAR(32) NOT NULL DEFAULT ''",
-    "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS user_agent VARCHAR(255) NULL",
-    "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS last_seen_at BIGINT NULL",
-    "ALTER TABLE ios_sessions ADD COLUMN IF NOT EXISTS last_ip VARCHAR(64) NULL",
-    "ALTER TABLE ios_apps ADD COLUMN IF NOT EXISTS internal_url VARCHAR(512) NULL AFTER seen_url",
-    # 0.15.0: what an app password may reach ('' everything; 'dav' the app's sync protocols only, see apppasswords)
-    "ALTER TABLE ios_app_passwords ADD COLUMN IF NOT EXISTS scope VARCHAR(32) NOT NULL DEFAULT '' AFTER last_used_at",
-    # 0.18.0: an app's own service account (users.service_account) says which app it is for
-    "ALTER TABLE ios_users ADD COLUMN IF NOT EXISTS service VARCHAR(32) NULL AFTER session_gen",
-    # 0.18.0: the old MCP admin token is gone (nothing ever checked it; MCP signs in with app passwords)
-    "DELETE FROM ios_settings WHERE name = 'mcp_admin_token'",
-]
-
-
-def _rename_to_convention(cur):
-    """Schema 4, before the tables are made: the old names become the convention's."""
-    done = schema.rename(cur, RENAME_TABLES, RENAME_COLUMNS)
-    if done:
-        log.info("shared database: renamed to the suite naming convention: %s", ", ".join(done))
-
-
-def _finish_convention(cur):
-    """Schema 4, once every table exists: the meta table's schema row is replaced by ios_schema_version and its other
-    rows (the record of `iosuite-shared migrate` runs) move to ios_settings under app '_migrate'; the old unnamed keys
-    get the convention's names; the tables that took the server's default character set get utf8mb4."""
-    if "meta" in schema.tables(cur):
-        cur.execute("INSERT IGNORE INTO ios_settings (app, name, value) "
-                    "SELECT '_migrate', k, COALESCE(v, '') FROM meta WHERE k LIKE 'migrated:%'")
-        cur.execute("DROP TABLE meta")
-    schema.rename(cur, None, None, RENAME_INDEXES)
-    for t in ("ios_user_roles", "ios_sessions"):
-        cur.execute("SELECT table_collation AS c FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = %s", (t,))
-        r = cur.fetchone()
-        if r and not (r["c"] or "").startswith("utf8mb4"):
-            cur.execute(f"ALTER TABLE {t} CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-
-
 _overrides: dict = {}  # the tests point the library at another database
 
 
@@ -274,12 +216,8 @@ def init():
             pass  # no right to create databases: it has to exist already
         with tx() as con:
             with con.cursor() as cur:
-                _rename_to_convention(cur)
                 for stmt in SCHEMA:
                     cur.execute(stmt + OPTIONS)
-                for stmt in UPGRADES:
-                    cur.execute(stmt)
-                _finish_convention(cur)
                 schema.ensure_version_table(cur, PREFIX)
                 schema.record_version(cur, PREFIX, SCHEMA_VERSION)
         _ready = True
